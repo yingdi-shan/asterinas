@@ -130,11 +130,11 @@ impl DirInMemory {
                 sub.sort();
                 self.sub_names.sort();
 
-                for i in 0..sub.len() {
+                for (i, name) in sub.iter().enumerate() {
                     assert!(
-                        sub[i].eq(&self.sub_names[i]),
+                        name.eq(&self.sub_names[i]),
                         "Directory entry mismatch: read {:?} should be {:?}",
-                        sub[i],
+                        name,
                         self.sub_names[i]
                     );
                 }
@@ -303,9 +303,7 @@ impl DirInMemory {
                     );
                 }
             }
-            _ => {
-                return;
-            }
+            _ => {}
         }
     }
 }
@@ -319,8 +317,8 @@ impl FileInMemory {
                     self.name, offset, len
                 );
 
-                let mut buf: Vec<u8> = Vec::new();
-                buf.resize(len, 0);
+                let mut buf = vec![0; len];
+
                 let read_result = self.inode.read_at(offset, &mut buf);
                 assert!(
                     read_result.is_ok(),
@@ -354,8 +352,8 @@ impl FileInMemory {
                     self.name, write_start_offset, write_len
                 );
 
-                let mut buf: Vec<u8> = Vec::new();
-                buf.resize(write_len, 0);
+                let mut buf = vec![0; write_len];
+
                 let _ = Random::getrandom(&mut buf);
                 let write_result = self.inode.write_at(write_start_offset, &buf);
                 assert!(
@@ -372,9 +370,9 @@ impl FileInMemory {
                     self.contents.resize(write_start_offset + write_len, 0);
                 }
                 self.valid_len = self.valid_len.max(write_start_offset + write_len);
-                for i in 0..write_len {
-                    self.contents[write_start_offset + i] = buf[i];
-                }
+
+                self.contents[write_start_offset..write_start_offset + write_len]
+                    .copy_from_slice(&buf[..write_len]);
             }
             Operation::Resize(new_size) => {
                 info!("Resize: name = {:?}, new_size = {:?}", self.name, new_size);
@@ -390,9 +388,7 @@ impl FileInMemory {
                 self.contents.resize(new_size, 0);
                 self.valid_len = self.valid_len.min(new_size);
             }
-            _ => {
-                return;
-            }
+            _ => {}
         }
     }
 }
@@ -423,27 +419,24 @@ fn get_random_in(max: usize) -> usize {
     let mut random: [u8; 1] = [0];
     let _ = Random::getrandom(&mut random);
     let rand = random[0] as usize;
-    return (rand * (max + 1) / MAX_RANDOM).min(max);
+    (rand * (max + 1) / MAX_RANDOM).min(max)
 }
 
 fn random_select_from_dir_tree(root: &mut DentryInMemory) -> &mut DentryInMemory {
     let sub_cnt = root.sub_cnt();
     if sub_cnt == 0 {
-        return root;
+        root
     } else {
         let stop_get_deeper = get_random_in(1) > 0;
         if stop_get_deeper {
-            return root;
+            root
+        } else if let DentryInMemory::Dir(dir) = root {
+            let sub_idx = get_random_in(sub_cnt - 1);
+            let sub = dir.sub_dirs.get_mut(&dir.sub_names[sub_idx]);
+            let sub_dir = sub.unwrap();
+            return random_select_from_dir_tree(sub_dir);
         } else {
-            if let DentryInMemory::Dir(dir) = root {
-                let sub_idx = get_random_in(sub_cnt - 1);
-                let sub = dir.sub_dirs.get_mut(&dir.sub_names[sub_idx]);
-                let sub_dir = sub.unwrap();
-                return random_select_from_dir_tree(sub_dir);
-            } else {
-                assert!(false, "Reached an unexpected point");
-                todo!()
-            }
+            unreachable!();
         }
     }
 }
@@ -486,24 +479,24 @@ pub fn generate_random_operation(
         DentryInMemory::Dir(dir) => {
             let op_id = get_random_in(DIR_OP_NUM - 1);
             if op_id == CREATE_FILE_ID {
-                return (dentry, Operation::Create(idx.to_string(), InodeType::File));
+                (dentry, Operation::Create(idx.to_string(), InodeType::File))
             } else if op_id == CREATE_DIR_ID {
                 return (dentry, Operation::Create(idx.to_string(), InodeType::Dir));
-            } else if op_id == UNLINK_ID && dir.sub_names.len() > 0 {
+            } else if op_id == UNLINK_ID && !dir.sub_names.is_empty() {
                 let rand_idx = get_random_in(dir.sub_names.len() - 1);
                 let name = dir.sub_names[rand_idx].clone();
                 return (dentry, Operation::Unlink(name));
-            } else if op_id == RMDIR_ID && dir.sub_names.len() > 0 {
+            } else if op_id == RMDIR_ID && !dir.sub_names.is_empty() {
                 let rand_idx = get_random_in(dir.sub_names.len() - 1);
                 let name = dir.sub_names[rand_idx].clone();
                 return (dentry, Operation::Rmdir(name));
-            } else if op_id == LOOKUP_ID && dir.sub_names.len() > 0 {
+            } else if op_id == LOOKUP_ID && !dir.sub_names.is_empty() {
                 let rand_idx = get_random_in(dir.sub_names.len() - 1);
                 let name = dir.sub_names[rand_idx].clone();
                 return (dentry, Operation::Lookup(name));
             } else if op_id == READDIR_ID {
                 return (dentry, Operation::Readdir());
-            } else if op_id == RENAME_ID && dir.sub_names.len() > 0 {
+            } else if op_id == RENAME_ID && !dir.sub_names.is_empty() {
                 let rand_old_idx = get_random_in(dir.sub_names.len() - 1);
                 let old_name = dir.sub_names[rand_old_idx].clone();
                 let rename_to_an_exist = get_random_in(1) > 0;
@@ -522,7 +515,7 @@ pub fn generate_random_operation(
             let op_id = get_random_in(FILE_OP_NUM - 1);
             if op_id == READ_ID {
                 let (offset, len) = generate_random_offset_len(MAX_PAGE_PER_FILE * PAGE_SIZE);
-                return (dentry, Operation::Read(offset, len));
+                (dentry, Operation::Read(offset, len))
             } else if op_id == WRITE_ID {
                 let (offset, len) = generate_random_offset_len(MAX_PAGE_PER_FILE * PAGE_SIZE);
                 return (dentry, Operation::Write(offset, len));

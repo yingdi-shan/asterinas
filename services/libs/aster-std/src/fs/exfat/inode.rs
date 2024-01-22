@@ -108,7 +108,7 @@ impl ExfatInode {
         let weak_inode_impl = Arc::downgrade(&inode_impl);
 
         let inode = Arc::new(ExfatInode(RwMutex::new(ExfatInodeInner {
-            inode_impl: inode_impl,
+            inode_impl,
             page_cache: PageCache::with_capacity(size, weak_inode_impl).unwrap(),
         })));
 
@@ -208,7 +208,7 @@ impl ExfatInode {
         let weak_inode_impl = Arc::downgrade(&inode_impl);
 
         let inode = Arc::new(ExfatInode(RwMutex::new(ExfatInodeInner {
-            inode_impl: inode_impl,
+            inode_impl,
             page_cache: PageCache::with_capacity(size, weak_inode_impl).unwrap(),
         })));
 
@@ -728,7 +728,7 @@ impl ExfatInodeInner {
             buf[buf_offset] &= 0x7F;
         }
 
-        self.page_cache.pages().write_bytes(offset, &mut buf)?;
+        self.page_cache.pages().write_bytes(offset, &buf)?;
         if self.inode_impl.0.read().is_sync() {
             self.page_cache
                 .pages()
