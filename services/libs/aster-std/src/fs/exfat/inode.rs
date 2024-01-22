@@ -292,20 +292,20 @@ impl ExfatInodeInner {
             Some(self.inode_impl.0.read().size),
         )?;
 
-        let mut count_unused = 0;
+        let mut contiguous_unused = 0;
         let mut entry_id = 0;
 
         for dentry_result in dentry_iterator {
             let dentry = dentry_result?;
             match dentry {
                 ExfatDentry::UnUsed | ExfatDentry::Deleted(_) => {
-                    count_unused += 1;
+                    contiguous_unused += 1;
                 }
                 _ => {
-                    count_unused = 0;
+                    contiguous_unused = 0;
                 }
             }
-            if count_unused >= num_dentries {
+            if contiguous_unused >= num_dentries {
                 return Ok(entry_id - (num_dentries - 1));
             }
             entry_id += 1;
@@ -323,11 +323,15 @@ impl ExfatInodeInner {
             .write()
             .start_chain
             .extend_clusters(cluster_to_be_allocated as u32, sync)?;
+
         let old_size_allocated = self.inode_impl.0.write().size_allocated;
         let size_allocated = old_size_allocated + cluster_size * cluster_to_be_allocated;
         self.inode_impl.0.write().size_allocated = size_allocated;
         self.inode_impl.0.write().size = size_allocated;
+
         self.page_cache.pages().resize(size_allocated)?;
+
+        //We need to write unused dentries to page cache
         let buf = vec![0; cluster_to_be_allocated * cluster_size];
         self.page_cache
             .pages()
@@ -353,14 +357,17 @@ impl ExfatInodeInner {
         let num_dentries = name_dentries + 2; // FILE Entry + Stream Entry + Name Entry
         let entry = self.find_empty_dentry(num_dentries)? as u32;
         let dentry_set = ExfatDentrySet::from(fs.clone(), name, inode_type, mode)?;
+
         let start_off = entry as usize * DENTRY_SIZE;
         let end_off = (entry as usize + num_dentries) * DENTRY_SIZE;
         self.page_cache
             .pages()
             .write_bytes(start_off, &dentry_set.to_le_bytes())?;
+
         if self.inode_impl.0.read().is_sync() {
             self.page_cache.pages().decommit(start_off..end_off)?;
         }
+
         self.inode_impl.0.write().num_subdir += 1;
 
         let pos = self
@@ -652,7 +659,7 @@ impl ExfatInodeInner {
             }
             _ => {}
         };
-        self.inode_impl.0.write().size_allocated = new_num_clusters as usize * cluster_size;
+        self.inode_impl.0.write().size_allocated = new_size;
         // Sync this inode if necessary.
         if sync {
             self.write_inode(true)?;
@@ -717,8 +724,10 @@ impl ExfatInodeInner {
             // Delete cluster chain if needed
             let dentry = ExfatDentry::try_from(&buf[buf_offset..buf_offset + DENTRY_SIZE])?;
             self.delete_associated_secondary_clusters(&dentry)?;
+            // Mark this dentry deleted
+            buf[buf_offset] &= 0x7F;
         }
-        buf.fill(0);
+
         self.page_cache.pages().write_bytes(offset, &mut buf)?;
         if self.inode_impl.0.read().is_sync() {
             self.page_cache
@@ -953,9 +962,11 @@ impl Inode for ExfatInode {
         //We must resize the inode before resizing the pagecache, to avoid the flush of extra dirty pages.
         inner.lock_and_resize(new_size)?;
 
+        //The size of page_cache should be synced to inode_size instead of inode_size_allocated.
         if new_size < inner.inode_impl.0.read().size {
             inner.page_cache.pages().resize(new_size)?
         }
+
         Ok(())
     }
 
@@ -1109,14 +1120,16 @@ impl Inode for ExfatInode {
             }
 
             let file_size = inner.inode_impl.0.read().size;
+            let file_allocated_size = inner.inode_impl.0.read().size_allocated;
             let new_size = offset + buf.len();
 
             if new_size > file_size {
-                inner.lock_and_resize(new_size)?;
+                if new_size > file_allocated_size {
+                    inner.lock_and_resize(new_size)?;
+                }
                 inner.page_cache.pages().resize(new_size)?;
 
                 inner.inode_impl.0.write().size = new_size;
-                //TODO:We need to fill the page cache with 0.
             }
         }
 

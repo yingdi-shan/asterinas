@@ -1044,11 +1044,8 @@ mod test {
         let max_ops: u32 = 3000;
         let show_progress_per: u32 = 100;
         for idx in 0..max_ops {
-            if idx % show_progress_per == 0 {
-                error!("{:?}/{:?} done", idx, max_ops);
-            }
             let (file_or_dir, op) = generate_random_operation(&mut fs_in_mem, idx);
-            file_or_dir.execute_and_test(op, false);
+            file_or_dir.execute_and_test(op);
         }
     }
 }

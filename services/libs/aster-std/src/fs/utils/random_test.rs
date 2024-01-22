@@ -42,27 +42,24 @@ impl DirInMemory {
             }
         }
     }
-    pub fn execute_and_test(&mut self, op: Operation, print: bool) {
+    pub fn execute_and_test(&mut self, op: Operation) {
         match op {
             Operation::Create(name, type_) => {
-                if print {
-                    error!(
-                        "Create: parent = {:?}, name = {:?}, type = {:?}",
-                        self.name, name, type_
-                    );
-                }
+                info!(
+                    "Create: parent = {:?}, name = {:?}, type = {:?}",
+                    self.name, name, type_
+                );
 
                 let create_result = self.inode.create(&name, type_, InodeMode::all());
                 if self.sub_dirs.contains_key(&name) {
                     assert!(create_result.is_err());
-                    if print {
-                        error!(
-                            "    create {:?}/{:?} failed: {:?}",
-                            self.name,
-                            name,
-                            create_result.unwrap_err()
-                        );
-                    }
+                    info!(
+                        "    create {:?}/{:?} failed: {:?}",
+                        self.name,
+                        name,
+                        create_result.unwrap_err()
+                    );
+
                     return;
                 }
 
@@ -73,12 +70,10 @@ impl DirInMemory {
                     create_result.unwrap_err()
                 );
 
-                if print {
-                    error!(
-                        "    create {:?}/{:?}({:?}) succeeeded",
-                        self.name, name, type_
-                    );
-                }
+                info!(
+                    "    create {:?}/{:?}({:?}) succeeeded",
+                    self.name, name, type_
+                );
 
                 let new_dentry_in_mem = if type_ == InodeType::File {
                     let file = FileInMemory {
@@ -101,9 +96,8 @@ impl DirInMemory {
                 self.sub_names.push(name.to_string());
             }
             Operation::Lookup(name) => {
-                if print {
-                    error!("Lookup: parent = {:?}, name = {:?}", self.name, name);
-                }
+                info!("Lookup: parent = {:?}, name = {:?}", self.name, name);
+
                 let lookup_result = self.inode.lookup(&name);
                 if self.sub_dirs.get(&name).is_some() {
                     assert!(
@@ -112,25 +106,21 @@ impl DirInMemory {
                         name,
                         lookup_result.unwrap_err()
                     );
-                    if print {
-                        error!("    lookup {:?}/{:?} succeeded", self.name, name);
-                    }
+
+                    info!("    lookup {:?}/{:?} succeeded", self.name, name);
                 } else {
                     assert!(lookup_result.is_err());
-                    if print {
-                        error!(
-                            "    lookup {:?}/{:?} failed: {:?}",
-                            self.name,
-                            name,
-                            lookup_result.unwrap_err()
-                        );
-                    }
+                    info!(
+                        "    lookup {:?}/{:?} failed: {:?}",
+                        self.name,
+                        name,
+                        lookup_result.unwrap_err()
+                    );
                 }
             }
             Operation::Readdir() => {
-                if print {
-                    error!("Readdir: parent = {:?}", self.name);
-                }
+                info!("Readdir: parent = {:?}", self.name);
+
                 let mut sub: Vec<String> = Vec::new();
                 let readdir_result = self.inode.readdir_at(0, &mut sub);
                 assert!(readdir_result.is_ok(), "Fail to read directory",);
@@ -150,9 +140,8 @@ impl DirInMemory {
                 }
             }
             Operation::Unlink(name) => {
-                if print {
-                    error!("Unlink: parent = {:?}, name = {:?}", self.name, name);
-                }
+                info!("Unlink: parent = {:?}, name = {:?}", self.name, name);
+
                 let unlink_result = self.inode.unlink(&name);
                 if let Option::Some(sub) = self.sub_dirs.get(&name)
                     && let DentryInMemory::File(_) = sub
@@ -164,27 +153,25 @@ impl DirInMemory {
                         name,
                         unlink_result.unwrap_err()
                     );
-                    if print {
-                        error!("    unlink {:?}/{:?} succeeded", self.name, name);
-                    }
+
+                    info!("    unlink {:?}/{:?} succeeded", self.name, name);
+
                     let _ = self.sub_dirs.remove(&name);
                     self.remove_sub_names(&name);
                 } else {
                     assert!(unlink_result.is_err());
-                    if print {
-                        error!(
-                            "    unlink {:?}/{:?} failed: {:?}",
-                            self.name,
-                            name,
-                            unlink_result.unwrap_err()
-                        );
-                    }
+
+                    info!(
+                        "    unlink {:?}/{:?} failed: {:?}",
+                        self.name,
+                        name,
+                        unlink_result.unwrap_err()
+                    );
                 }
             }
             Operation::Rmdir(name) => {
-                if print {
-                    error!("Rmdir: parent = {:?}, name = {:?}", self.name, name);
-                }
+                info!("Rmdir: parent = {:?}, name = {:?}", self.name, name);
+
                 let rmdir_result = self.inode.rmdir(&name);
                 if let Option::Some(sub) = self.sub_dirs.get(&name)
                     && let DentryInMemory::Dir(sub_dir) = sub
@@ -197,40 +184,38 @@ impl DirInMemory {
                         name,
                         rmdir_result.unwrap_err()
                     );
-                    if print {
-                        error!("    rmdir {:?}/{:?} succeeded", self.name, name);
-                    }
+
+                    info!("    rmdir {:?}/{:?} succeeded", self.name, name);
+
                     let _ = self.sub_dirs.remove(&name);
                     self.remove_sub_names(&name);
                 } else {
                     assert!(rmdir_result.is_err());
-                    if print {
-                        error!(
-                            "    rmdir {:?}/{:?} failed: {:?}",
-                            self.name,
-                            name,
-                            rmdir_result.unwrap_err()
-                        );
-                    }
+
+                    info!(
+                        "    rmdir {:?}/{:?} failed: {:?}",
+                        self.name,
+                        name,
+                        rmdir_result.unwrap_err()
+                    );
                 }
             }
             Operation::Rename(old_name, new_name) => {
-                if print {
-                    error!(
-                        "Rename: parent = {:?}, old_name = {:?}, target = {:?}, new_name = {:?}",
-                        self.name, old_name, self.name, new_name
-                    );
-                }
+                info!(
+                    "Rename: parent = {:?}, old_name = {:?}, target = {:?}, new_name = {:?}",
+                    self.name, old_name, self.name, new_name
+                );
+
                 let rename_result = self.inode.rename(&old_name, &self.inode, &new_name);
 
                 if old_name.eq(&new_name) {
                     assert!(rename_result.is_ok());
-                    if print {
-                        error!(
-                            "    rename {:?}/{:?} to {:?}/{:?} succeeded",
-                            self.name, old_name, self.name, new_name
-                        );
-                    }
+
+                    info!(
+                        "    rename {:?}/{:?} to {:?}/{:?} succeeded",
+                        self.name, old_name, self.name, new_name
+                    );
+
                     return;
                 }
 
@@ -273,12 +258,12 @@ impl DirInMemory {
                         new_name,
                         rename_result.unwrap_err()
                     );
-                    if print {
-                        error!(
-                            "    rename {:?}/{:?} to {:?}/{:?} succeeded",
-                            self.name, old_name, self.name, new_name
-                        );
-                    }
+
+                    info!(
+                        "    rename {:?}/{:?} to {:?}/{:?} succeeded",
+                        self.name, old_name, self.name, new_name
+                    );
+
                     let lookup_new_inode_result = self.inode.lookup(&new_name);
                     assert!(
                         lookup_new_inode_result.is_ok(),
@@ -307,16 +292,15 @@ impl DirInMemory {
                     self.sub_names.push(new_name.to_string());
                 } else {
                     assert!(rename_result.is_err());
-                    if print {
-                        error!(
-                            "    rename {:?}/{:?} to {:?}/{:?} failed: {:?}",
-                            self.name,
-                            old_name,
-                            self.name,
-                            new_name,
-                            rename_result.unwrap_err()
-                        );
-                    }
+
+                    info!(
+                        "    rename {:?}/{:?} to {:?}/{:?} failed: {:?}",
+                        self.name,
+                        old_name,
+                        self.name,
+                        new_name,
+                        rename_result.unwrap_err()
+                    );
                 }
             }
             _ => {
@@ -327,15 +311,14 @@ impl DirInMemory {
 }
 
 impl FileInMemory {
-    pub fn execute_and_test(&mut self, op: Operation, print: bool) {
+    pub fn execute_and_test(&mut self, op: Operation) {
         match op {
             Operation::Read(offset, len) => {
-                if print {
-                    error!(
-                        "Read: name = {:?}, offset = {:?}, len = {:?}",
-                        self.name, offset, len
-                    );
-                }
+                info!(
+                    "Read: name = {:?}, offset = {:?}, len = {:?}",
+                    self.name, offset, len
+                );
+
                 let mut buf: Vec<u8> = Vec::new();
                 buf.resize(len, 0);
                 let read_result = self.inode.read_at(offset, &mut buf);
@@ -346,9 +329,9 @@ impl FileInMemory {
                     offset + len,
                     read_result.unwrap_err()
                 );
-                if print {
-                    error!("    read succeeded");
-                }
+
+                info!("    read succeeded");
+
                 let (start, end) = (
                     offset.min(self.valid_len),
                     (offset + len).min(self.valid_len),
@@ -365,12 +348,12 @@ impl FileInMemory {
                 } else {
                     (offset, len)
                 };
-                if print {
-                    error!(
-                        "Write: name = {:?}, offset = {:?}, len = {:?}",
-                        self.name, write_start_offset, write_len
-                    );
-                }
+
+                info!(
+                    "Write: name = {:?}, offset = {:?}, len = {:?}",
+                    self.name, write_start_offset, write_len
+                );
+
                 let mut buf: Vec<u8> = Vec::new();
                 buf.resize(write_len, 0);
                 let _ = Random::getrandom(&mut buf);
@@ -382,9 +365,9 @@ impl FileInMemory {
                     write_start_offset + write_len,
                     write_result.unwrap_err()
                 );
-                if print {
-                    error!("    write succeeded");
-                }
+
+                info!("    write succeeded");
+
                 if write_start_offset + write_len > self.contents.len() {
                     self.contents.resize(write_start_offset + write_len, 0);
                 }
@@ -394,9 +377,8 @@ impl FileInMemory {
                 }
             }
             Operation::Resize(new_size) => {
-                if print {
-                    error!("Resize: name = {:?}, new_size = {:?}", self.name, new_size);
-                }
+                info!("Resize: name = {:?}, new_size = {:?}", self.name, new_size);
+
                 // todo: may need more consideration
                 let resize_result = self.inode.resize(new_size);
                 assert!(
@@ -416,13 +398,13 @@ impl FileInMemory {
 }
 
 impl DentryInMemory {
-    pub fn execute_and_test(&mut self, op: Operation, print: bool) {
+    pub fn execute_and_test(&mut self, op: Operation) {
         match self {
             DentryInMemory::Dir(dir) => {
-                dir.execute_and_test(op, print);
+                dir.execute_and_test(op);
             }
             DentryInMemory::File(file) => {
-                file.execute_and_test(op, print);
+                file.execute_and_test(op);
             }
         }
     }
