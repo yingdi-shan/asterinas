@@ -88,6 +88,10 @@ impl VirtioMmioTransport {
 }
 
 impl VirtioTransport for VirtioMmioTransport {
+    fn get_device_addr(&self) -> usize {
+        self.common_device.address()
+    }
+
     fn device_type(&self) -> VirtioDeviceType {
         VirtioDeviceType::try_from(self.common_device.device_id() as u8).unwrap()
     }

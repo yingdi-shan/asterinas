@@ -7,7 +7,7 @@ use core::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use alloc::{boxed::Box, collections::VecDeque, string::ToString, sync::Arc, vec::Vec};
+use alloc::{boxed::Box, collections::VecDeque, format, string::ToString, sync::Arc, vec::Vec};
 use aster_block::{
     bio::{BioEnqueueError, BioStatus, BioType, SubmittedBio},
     id::Sid,
@@ -43,6 +43,8 @@ pub struct BlockDevice {
 impl BlockDevice {
     /// Creates a new VirtIO-Block driver and registers it.
     pub(crate) fn init(transport: Box<dyn VirtioTransport>) -> Result<(), VirtioDeviceError> {
+        let addr = transport.get_device_addr().to_string();
+
         let block_device = {
             let device = DeviceInner::init(transport)?;
             Self {
@@ -50,7 +52,11 @@ impl BlockDevice {
                 queue: BioSingleQueue::new(),
             }
         };
-        aster_block::register_device(super::DEVICE_NAME.to_string(), Arc::new(block_device));
+
+        aster_block::register_device(
+            super::DEVICE_NAME.to_string() + &addr,
+            Arc::new(block_device),
+        );
         Ok(())
     }
 
@@ -148,6 +154,15 @@ impl DeviceInner {
         if num_queues != 1 {
             return Err(VirtioDeviceError::QueuesAmountDoNotMatch(num_queues, 1));
         }
+
+        let device_name = format!("{}{}", super::DEVICE_NAME, transport.get_device_addr());
+
+        let handle_block_device = move |_: &TrapFrame| {
+            aster_block::get_device(device_name.as_str())
+                .unwrap()
+                .handle_irq();
+        };
+
         let queue = VirtQueue::new(0, 64, transport.as_mut()).expect("create virtqueue failed");
         let mut device = Self {
             config,
@@ -162,16 +177,11 @@ impl DeviceInner {
             .transport
             .register_cfg_callback(Box::new(config_space_change))
             .unwrap();
+
         device
             .transport
             .register_queue_callback(0, Box::new(handle_block_device), false)
             .unwrap();
-
-        fn handle_block_device(_: &TrapFrame) {
-            aster_block::get_device(super::DEVICE_NAME)
-                .unwrap()
-                .handle_irq();
-        }
 
         fn config_space_change(_: &TrapFrame) {
             info!("Virtio block device config space change");

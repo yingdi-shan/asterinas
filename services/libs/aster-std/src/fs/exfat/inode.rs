@@ -86,7 +86,7 @@ impl ExfatInode {
 
         let name = ExfatName::new();
 
-        let inode_impl = Arc::new(ExfatInodeImpl(RwLock::new(ExfatInodeImpl_ {
+        let inode_impl = Arc::new(ExfatInodeImpl(RwMutex::new(ExfatInodeImpl_ {
             ino: EXFAT_ROOT_INO,
             dentry_set_position: ExfatChainPosition::default(),
             dentry_set_size: 0,
@@ -187,7 +187,7 @@ impl ExfatInode {
         )?;
 
         let name = dentry_set.get_name()?;
-        let inode_impl = Arc::new(ExfatInodeImpl(RwLock::new(ExfatInodeImpl_ {
+        let inode_impl = Arc::new(ExfatInodeImpl(RwMutex::new(ExfatInodeImpl_ {
             ino,
             dentry_set_position,
             dentry_set_size,
@@ -660,10 +660,12 @@ impl ExfatInodeInner {
             _ => {}
         };
         self.inode_impl.0.write().size_allocated = new_size;
+
         // Sync this inode if necessary.
         if sync {
             self.write_inode(true)?;
         }
+
         Ok(())
     }
 
@@ -785,7 +787,7 @@ pub struct ExfatInodeImpl_ {
 }
 
 #[derive(Debug)]
-struct ExfatInodeImpl(RwLock<ExfatInodeImpl_>);
+struct ExfatInodeImpl(RwMutex<ExfatInodeImpl_>);
 
 impl PageCacheBackend for ExfatInodeImpl {
     fn read_page(&self, idx: usize, frame: &VmFrame) -> Result<()> {
@@ -953,7 +955,7 @@ impl Inode for ExfatInode {
     }
 
     fn len(&self) -> usize {
-        self.0.read().inode_impl.0.read().ino
+        self.0.read().inode_impl.0.read().size
     }
 
     fn resize(&self, new_size: usize) -> Result<()> {
@@ -1203,6 +1205,7 @@ impl Inode for ExfatInode {
         }
         let result = inner.add_entry(name, type_, mode)?;
         let _ = fs.insert_inode(result.clone());
+
         Ok(result)
     }
 
@@ -1271,6 +1274,7 @@ impl Inode for ExfatInode {
             dentry_position.0.cluster_id(),
             dentry_position.1 as u32,
         ));
+
         Ok(())
     }
 
@@ -1317,6 +1321,7 @@ impl Inode for ExfatInode {
             dentry_position.0.cluster_id(),
             dentry_position.1 as u32,
         ));
+
         Ok(())
     }
 

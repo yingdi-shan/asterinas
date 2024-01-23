@@ -25,6 +25,8 @@ pub mod pci;
 pub trait VirtioTransport: Sync + Send + Debug {
     // ====================Device related APIs=======================
 
+    fn get_device_addr(&self) -> usize;
+
     fn device_type(&self) -> VirtioDeviceType;
 
     /// Get device features.

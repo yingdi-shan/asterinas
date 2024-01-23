@@ -31,7 +31,7 @@ pub struct ExfatFS {
     block_device: Arc<dyn BlockDevice>,
     super_block: ExfatSuperBlock,
 
-    bitmap: Arc<SpinLock<ExfatBitmap>>,
+    bitmap: Arc<Mutex<ExfatBitmap>>,
 
     upcase_table: Arc<SpinLock<ExfatUpcaseTable>>,
 
@@ -65,7 +65,7 @@ impl ExfatFS {
         let exfat_fs = Arc::new_cyclic(|weak_self| ExfatFS {
             block_device,
             super_block,
-            bitmap: Arc::new(SpinLock::new(ExfatBitmap::default())),
+            bitmap: Arc::new(Mutex::new(ExfatBitmap::default())),
             upcase_table: Arc::new(SpinLock::new(ExfatUpcaseTable::empty())),
             mount_option,
             highest_inode_number: AtomicUsize::new(EXFAT_ROOT_INO + 1),
@@ -299,7 +299,7 @@ impl ExfatFS {
         self.super_block
     }
 
-    pub fn bitmap(&self) -> Arc<SpinLock<ExfatBitmap>> {
+    pub fn bitmap(&self) -> Arc<Mutex<ExfatBitmap>> {
         self.bitmap.clone()
     }
 

@@ -199,7 +199,7 @@ impl ExfatChain {
     fn alloc_cluster_from_empty(
         &mut self,
         num_to_be_allocated: u32,
-        bitmap: &mut SpinLockGuard<'_, ExfatBitmap>,
+        bitmap: &mut MutexGuard<'_, ExfatBitmap>,
         sync_bitmap: bool,
     ) -> Result<ClusterID> {
         // search for a continuous chunk big enough
@@ -225,7 +225,7 @@ impl ExfatChain {
         &mut self,
         num_to_be_allocated: u32,
         sync: bool,
-        bitmap: &mut SpinLockGuard<'_, ExfatBitmap>,
+        bitmap: &mut MutexGuard<'_, ExfatBitmap>,
     ) -> Result<ClusterID> {
         let fs = self.fs();
         let mut alloc_start_cluster = 0;
@@ -252,7 +252,7 @@ impl ExfatChain {
         start_physical_cluster: ClusterID,
         drop_num: u32,
         sync_bitmap: bool,
-        bitmap: &mut SpinLockGuard<'_, ExfatBitmap>,
+        bitmap: &mut MutexGuard<'_, ExfatBitmap>,
     ) -> Result<()> {
         let fs = self.fs();
 

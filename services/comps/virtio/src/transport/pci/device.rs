@@ -64,6 +64,10 @@ impl Debug for VirtioPciTransport {
 }
 
 impl VirtioTransport for VirtioPciTransport {
+    fn get_device_addr(&self) -> usize {
+        self.common_device.location().device as usize
+    }
+
     fn device_type(&self) -> VirtioDeviceType {
         self.device_type
     }
