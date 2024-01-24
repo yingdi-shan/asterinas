@@ -627,7 +627,7 @@ impl ExfatInodeInner {
 
     /// Resize current inode to new_size.
     /// The file system must be locked before calling.
-    pub fn resize(&mut self, new_size: usize) -> Result<()> {
+    fn resize(&mut self, new_size: usize) -> Result<()> {
         let fs = self.fs();
         let cluster_size = fs.cluster_size();
         let num_clusters = self.inode_impl.0.read().num_clusters();
@@ -661,16 +661,11 @@ impl ExfatInodeInner {
         };
         self.inode_impl.0.write().size_allocated = new_size;
 
-        // Sync this inode if necessary.
-        if sync {
-            self.write_inode(true)?;
-        }
-
         Ok(())
     }
 
     /// Lock the file system and call resize
-    pub fn lock_and_resize(&mut self, new_size: usize) -> Result<()> {
+    fn lock_and_resize(&mut self, new_size: usize) -> Result<()> {
         let fs = self.fs();
         let guard = fs.lock();
         self.resize(new_size)
@@ -739,6 +734,17 @@ impl ExfatInodeInner {
 
         self.inode_impl.0.write().num_subdir -= 1;
         // FIXME: We must make sure that there are no spare tailing clusters in a directory.
+        Ok(())
+    }
+
+    fn sync_inode(&mut self, fs_guard: &MutexGuard<()>) -> Result<()> {
+        self.page_cache
+            .evict_range(0..self.inode_impl.0.read().size)?;
+
+        self.fs().bitmap().lock().sync()?;
+
+        self.write_inode(true)?;
+
         Ok(())
     }
 }
@@ -969,6 +975,11 @@ impl Inode for ExfatInode {
             inner.page_cache.pages().resize(new_size)?
         }
 
+        // Sync this inode since size has changed.
+        if inner.inode_impl.0.read().is_sync() {
+            inner.write_inode(true)?;
+        }
+
         Ok(())
     }
 
@@ -1133,6 +1144,10 @@ impl Inode for ExfatInode {
 
                 inner.inode_impl.0.write().size = new_size;
             }
+            // Sync this inode since size has changed.
+            if inner.inode_impl.0.read().is_sync() {
+                inner.write_inode(true)?;
+            }
         }
 
         //Lock released here.
@@ -1171,6 +1186,9 @@ impl Inode for ExfatInode {
             inner.page_cache.pages().resize(end_offset)?;
 
             inner.inode_impl.0.write().size = end_offset;
+
+            // Sync this inode since size has changed.
+            inner.write_inode(true)?;
         }
 
         //TODO: We need to write 0 to extented space.
@@ -1205,6 +1223,10 @@ impl Inode for ExfatInode {
         }
         let result = inner.add_entry(name, type_, mode)?;
         let _ = fs.insert_inode(result.clone());
+
+        if inner.inode_impl.0.read().is_sync() {
+            inner.sync_inode(&guard)?;
+        }
 
         Ok(result)
     }
@@ -1275,6 +1297,10 @@ impl Inode for ExfatInode {
             dentry_position.1 as u32,
         ));
 
+        if self.0.read().inode_impl.0.read().is_sync() {
+            self.0.write().sync_inode(&guard)?;
+        }
+
         Ok(())
     }
 
@@ -1321,6 +1347,10 @@ impl Inode for ExfatInode {
             dentry_position.0.cluster_id(),
             dentry_position.1 as u32,
         ));
+
+        if self.0.read().inode_impl.0.read().is_sync() {
+            self.0.write().sync_inode(&guard)?;
+        }
 
         Ok(())
     }
@@ -1480,7 +1510,7 @@ impl Inode for ExfatInode {
         }
 
         // insert back
-        let _ = fs.insert_inode(old_inode);
+        let _ = fs.insert_inode(old_inode.clone());
 
         // delete 'old_name' dentries
         self.0.write().delete_dentry_set(old_offset, old_len)?;
@@ -1495,6 +1525,15 @@ impl Inode for ExfatInode {
                 .0
                 .write()
                 .delete_dentry_set(exist_offset, exist_len)?;
+        }
+
+        if self.0.read().inode_impl.0.read().is_sync()
+            || target_.0.read().inode_impl.0.read().is_sync()
+        {
+            //TODO: what if fs crashed between syncing?
+            old_inode.0.write().sync_inode(&guard)?;
+            target_.0.write().sync_inode(&guard)?;
+            self.0.write().sync_inode(&guard)?;
         }
 
         Ok(())
@@ -1513,15 +1552,9 @@ impl Inode for ExfatInode {
     }
 
     fn sync(&self) -> Result<()> {
-        self.0.read().page_cache.evict_range(0..self.len())?;
-
-        let mut inner = self.0.write();
-        let fs = inner.fs();
+        let fs = self.0.read().fs();
         let guard = fs.lock();
-
-        fs.bitmap().lock().sync()?;
-
-        inner.write_inode(true)?;
+        self.0.write().sync_inode(&guard)?;
 
         Ok(())
     }
