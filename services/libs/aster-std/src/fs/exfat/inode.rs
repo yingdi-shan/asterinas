@@ -949,6 +949,15 @@ impl ExfatInodeImpl_ {
         self.name = ExfatName::from_str(&impl_.name.to_string()).unwrap();
         self.parent_hash = impl_.parent_hash;
     }
+
+    fn set_atime(&mut self, time: DosTimestamp) {
+        self.atime = time;
+    }
+
+    fn set_atime_and_mtime(&mut self, time: DosTimestamp) {
+        self.atime = time;
+        self.mtime = time;
+    }
 }
 
 fn is_block_aligned(off: usize) -> bool {
@@ -1082,6 +1091,7 @@ impl Inode for ExfatInode {
             .pages()
             .read_bytes(read_off, &mut buf[..read_len])?;
 
+        inner.inode_impl.0.write().set_atime(DosTimestamp::now()?);
         Ok(read_len)
     }
 
@@ -1121,6 +1131,7 @@ impl Inode for ExfatInode {
             buf_offset += BLOCK_SIZE;
         }
 
+        inner.inode_impl.0.write().set_atime(DosTimestamp::now()?);
         Ok(read_len)
     }
 
@@ -1144,15 +1155,18 @@ impl Inode for ExfatInode {
 
                 inner.inode_impl.0.write().size = new_size;
             }
-            // Sync this inode since size has changed.
-            if inner.inode_impl.0.read().is_sync() {
-                inner.write_inode(true)?;
-            }
         }
 
         //Lock released here.
 
         self.0.read().page_cache.pages().write_bytes(offset, buf)?;
+
+        self.0
+            .read()
+            .inode_impl
+            .0
+            .write()
+            .set_atime_and_mtime(DosTimestamp::now()?);
 
         if self.0.read().inode_impl.0.read().is_sync() {
             self.0
@@ -1160,6 +1174,8 @@ impl Inode for ExfatInode {
                 .page_cache
                 .pages()
                 .decommit(offset..offset + buf.len())?;
+
+            self.0.write().write_inode(true)?;
         }
 
         Ok(buf.len())
@@ -1175,6 +1191,7 @@ impl Inode for ExfatInode {
         }
 
         let file_size = inner.inode_impl.0.read().size;
+        let file_allocated_size = inner.inode_impl.0.read().size_allocated;
         let end_offset = offset + buf.len();
 
         let start = offset.min(file_size);
@@ -1182,7 +1199,9 @@ impl Inode for ExfatInode {
         inner.page_cache.pages().decommit(start..end)?;
 
         if end_offset > file_size {
-            inner.lock_and_resize(end_offset)?;
+            if end_offset > file_allocated_size {
+                inner.lock_and_resize(end_offset)?;
+            }
             inner.page_cache.pages().resize(end_offset)?;
 
             inner.inode_impl.0.write().size = end_offset;
@@ -1203,6 +1222,12 @@ impl Inode for ExfatInode {
             inner.fs().block_device().write_block_sync(bid, &frame)?;
             buf_offset += BLOCK_SIZE;
         }
+
+        inner
+            .inode_impl
+            .0
+            .write()
+            .set_atime_and_mtime(DosTimestamp::now()?);
         Ok(buf_offset)
     }
 
@@ -1224,6 +1249,12 @@ impl Inode for ExfatInode {
         let result = inner.add_entry(name, type_, mode)?;
         let _ = fs.insert_inode(result.clone());
 
+        inner
+            .inode_impl
+            .0
+            .write()
+            .set_atime_and_mtime(DosTimestamp::now()?);
+
         if inner.inode_impl.0.read().is_sync() {
             inner.sync_inode(&guard)?;
         }
@@ -1237,9 +1268,9 @@ impl Inode for ExfatInode {
 
     fn readdir_at(&self, dir_cnt: usize, visitor: &mut dyn DirentVisitor) -> Result<usize> {
         let inner = self.0.read();
-        let impl_ = inner.inode_impl.0.read();
+        let num_subdir = inner.inode_impl.0.read().num_subdir;
 
-        if dir_cnt >= impl_.num_subdir as usize {
+        if dir_cnt >= num_subdir as usize {
             return Ok(0);
         }
 
@@ -1251,8 +1282,11 @@ impl Inode for ExfatInode {
         //Skip previous directories.
         let off = inner.read_multiple_dirs(0, dir_cnt, &mut empty_visitor)?;
 
-        inner.read_multiple_dirs(off, impl_.num_subdir as usize - dir_cnt, visitor)?;
-        Ok(impl_.num_subdir as usize - dir_cnt)
+        inner.read_multiple_dirs(off, num_subdir as usize - dir_cnt, visitor)?;
+
+        inner.inode_impl.0.write().set_atime(DosTimestamp::now()?);
+
+        Ok(num_subdir as usize - dir_cnt)
     }
 
     fn link(&self, old: &Arc<dyn Inode>, name: &str) -> Result<()> {
@@ -1296,6 +1330,13 @@ impl Inode for ExfatInode {
             dentry_position.0.cluster_id(),
             dentry_position.1 as u32,
         ));
+
+        self.0
+            .read()
+            .inode_impl
+            .0
+            .write()
+            .set_atime_and_mtime(DosTimestamp::now()?);
 
         if self.0.read().inode_impl.0.read().is_sync() {
             self.0.write().sync_inode(&guard)?;
@@ -1348,6 +1389,13 @@ impl Inode for ExfatInode {
             dentry_position.1 as u32,
         ));
 
+        self.0
+            .read()
+            .inode_impl
+            .0
+            .write()
+            .set_atime_and_mtime(DosTimestamp::now()?);
+
         if self.0.read().inode_impl.0.read().is_sync() {
             self.0.write().sync_inode(&guard)?;
         }
@@ -1370,6 +1418,8 @@ impl Inode for ExfatInode {
         let guard = fs.lock();
 
         let (inode, _, _) = inner.lookup_by_name(name)?;
+
+        inner.inode_impl.0.write().set_atime(DosTimestamp::now()?);
         Ok(inode)
     }
 
@@ -1407,6 +1457,7 @@ impl Inode for ExfatInode {
         if self.0.read().inode_impl.0.read().ino == target_.0.read().inode_impl.0.read().ino
             && old_name.eq(new_name)
         {
+            // need modify times?
             return Ok(());
         }
 
@@ -1526,6 +1577,16 @@ impl Inode for ExfatInode {
                 .write()
                 .delete_dentry_set(exist_offset, exist_len)?;
         }
+
+        let now = DosTimestamp::now()?;
+        self.0.read().inode_impl.0.write().set_atime_and_mtime(now);
+        target_
+            .0
+            .read()
+            .inode_impl
+            .0
+            .write()
+            .set_atime_and_mtime(now);
 
         if self.0.read().inode_impl.0.read().is_sync()
             || target_.0.read().inode_impl.0.read().is_sync()
