@@ -1,7 +1,7 @@
 #[cfg(ktest)]
 mod test {
+    use crate::device::Random;
     use crate::{
-        device::Random,
         fs::{
             exfat::bitmap::EXFAT_RESERVED_CLUSTERS,
             exfat::{constants::MAX_NAME_LENGTH, ExfatFS, ExfatMountOptions},
@@ -222,8 +222,12 @@ mod test {
                 read_result.unwrap_err()
             );
 
-            assert!(read_result.unwrap() == file_id + 1);
-            assert!(sub_inodes.len() == file_id + 1);
+            assert!(read_result.unwrap() == file_id + 1 + 2);
+            assert!(sub_inodes.len() == file_id + 1 + 2);
+
+            //Remove . and ..
+            sub_inodes.remove(0);
+            sub_inodes.remove(0);
 
             sub_inodes.sort();
 
@@ -242,7 +246,7 @@ mod test {
 
         //Test skiped readdir.
         let mut sub_inodes: Vec<String> = Vec::new();
-        let _ = root.readdir_at(file_names.len() / 3, &mut sub_inodes);
+        let _ = root.readdir_at(file_names.len() / 3 + 2, &mut sub_inodes);
 
         assert!(sub_inodes.len() == file_names.len() - file_names.len() / 3);
     }
@@ -265,7 +269,7 @@ mod test {
         let mut sub_dirs: Vec<String> = Vec::new();
         let _ = root.readdir_at(0, &mut sub_dirs);
 
-        assert!(sub_dirs.is_empty());
+        assert!(sub_dirs.len() == 2);
 
         // followings are some invalid unlink call. These should return with an error.
         let unlink_fail_result1 = root.unlink(".");
@@ -322,10 +326,11 @@ mod test {
         for (file_id, file_name) in reverse_names.iter().enumerate() {
             let id = file_num as usize - 1 - file_id;
             let unlink_result = root.unlink(file_name);
+            assert!(unlink_result.is_ok(), "Fail to unlink file {:?}", id);
+
             assert!(
-                unlink_result.is_ok() && fs.free_clusters() == free_clusters_before_create[id],
-                "Fail to unlink file {:?}",
-                id
+                fs.free_clusters() == free_clusters_before_create[id],
+                "Space is still occupied after unlinking"
             );
 
             let mut sub_inodes: Vec<String> = Vec::new();
@@ -364,7 +369,7 @@ mod test {
 
         let mut sub_dirs: Vec<String> = Vec::new();
         let _ = root.readdir_at(0, &mut sub_dirs);
-        assert!(sub_dirs.is_empty());
+        assert!(sub_dirs.len() == 2);
 
         // Followings are some invalid unlink call. These should return with an error.
         let rmdir_fail_result1 = root.rmdir(".");
@@ -445,7 +450,7 @@ mod test {
         // test list after rename
         let mut sub_dirs: Vec<String> = Vec::new();
         let _ = root.readdir_at(0, &mut sub_dirs);
-        assert!(sub_dirs.len() == 1 && sub_dirs[0].eq(new_name));
+        assert!(sub_dirs.len() == 3 && sub_dirs[2].eq(new_name));
 
         // test read after rename
         let a_inode_new = root.lookup(new_name).unwrap();
@@ -489,7 +494,11 @@ mod test {
         );
 
         sub_dirs.clear();
+
         let _ = root.readdir_at(0, &mut sub_dirs);
+        sub_dirs.remove(0);
+        sub_dirs.remove(0);
+
         sub_dirs.sort();
 
         assert!(
@@ -517,6 +526,8 @@ mod test {
 
         sub_dirs.clear();
         let _ = root.readdir_at(0, &mut sub_dirs);
+        sub_dirs.remove(0);
+        sub_dirs.remove(0);
         sub_dirs.sort();
 
         assert!(
@@ -544,13 +555,13 @@ mod test {
 
         let mut sub_dirs: Vec<String> = Vec::new();
         let _ = root.readdir_at(0, &mut sub_dirs);
-        assert!(sub_dirs.len() == 1 && sub_dirs[0].eq(new_folder_name));
+        assert!(sub_dirs.len() == 3 && sub_dirs[2].eq(new_folder_name));
 
         let new_folder = root.lookup(new_folder_name).unwrap();
 
         sub_dirs.clear();
         let _ = new_folder.readdir_at(0, &mut sub_dirs);
-        assert!(sub_dirs.len() == 1 && sub_dirs[0].eq(child_file_name));
+        assert!(sub_dirs.len() == 3 && sub_dirs[2].eq(child_file_name));
 
         // Test rename directory when the new_name is exist.
         let exist_folder_name = "exist_folder";
@@ -1000,7 +1011,7 @@ mod test {
             let size = pg_num * PAGE_SIZE;
             let _ = inode.resize(size);
 
-            buf.resize(size * PAGE_SIZE, 0);
+            buf.resize(size, 0);
             let _ = Random::getrandom(&mut buf);
             let write_result = inode.write_at(0, &buf);
             assert!(
@@ -1020,7 +1031,7 @@ mod test {
             let size = (pg_num - 1) * PAGE_SIZE;
             let _ = inode.resize(size);
 
-            buf.resize(size * PAGE_SIZE, 0);
+            buf.resize(size, 0);
             let _ = Random::getrandom(&mut buf);
             let write_result = inode.write_at(0, &buf);
             assert!(

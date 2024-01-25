@@ -99,7 +99,8 @@ impl ExfatInode {
             atime: ctime,
             mtime: ctime,
             ctime,
-            num_subdir: 0,
+            num_sub_inodes: 0,
+            num_sub_dirs: 0,
             name,
             parent_hash: 0,
             fs: fs_weak,
@@ -112,8 +113,9 @@ impl ExfatInode {
             page_cache: PageCache::with_capacity(size, weak_inode_impl).unwrap(),
         })));
 
-        let num_subdir = inode.0.read().count_num_subdir()?;
-        inode.0.write().inode_impl.0.write().num_subdir = num_subdir as u32;
+        let num_sub_inode_dir = inode.0.read().count_num_sub_inode_and_dir()?;
+        inode.0.write().inode_impl.0.write().num_sub_inodes = num_sub_inode_dir.0 as u32;
+        inode.0.write().inode_impl.0.write().num_sub_dirs = num_sub_inode_dir.1 as u32;
 
         Ok(inode)
     }
@@ -200,7 +202,8 @@ impl ExfatInode {
             atime,
             mtime,
             ctime,
-            num_subdir: 0,
+            num_sub_inodes: 0,
+            num_sub_dirs: 0,
             name,
             parent_hash,
             fs: fs_weak,
@@ -212,12 +215,11 @@ impl ExfatInode {
             page_cache: PageCache::with_capacity(size, weak_inode_impl).unwrap(),
         })));
 
-        let num_subdir = if matches!(inode_type, InodeType::File) {
-            0
-        } else {
-            inode.0.read().count_num_subdir()? as u32
-        };
-        inode.0.write().inode_impl.0.write().num_subdir = num_subdir;
+        if matches!(inode_type, InodeType::Dir) {
+            let num_sub_inode_dir = inode.0.read().count_num_sub_inode_and_dir()?;
+            inode.0.write().inode_impl.0.write().num_sub_inodes = num_sub_inode_dir.0 as u32;
+            inode.0.write().inode_impl.0.write().num_sub_dirs = num_sub_inode_dir.1 as u32;
+        }
 
         Ok(inode)
     }
@@ -263,24 +265,28 @@ impl ExfatInodeInner {
         self.inode_impl.0.read().fs()
     }
 
-    fn count_num_subdir(&self) -> Result<usize> {
+    fn count_num_sub_inode_and_dir(&self) -> Result<(usize, usize)> {
         let impl_ = self.inode_impl.0.read();
         let start_chain = impl_.start_chain.clone();
         let size = impl_.size;
 
         if !start_chain.is_current_cluster_valid() {
-            return Ok(0);
+            return Ok((0, 0));
         }
 
         let iterator = ExfatDentryIterator::new(self.page_cache.pages(), 0, Some(size))?;
-        let mut cnt = 0;
+        let mut sub_inodes = 0;
+        let mut sub_dirs = 0;
         for dentry_result in iterator {
             let dentry = dentry_result?;
-            if let ExfatDentry::File(_) = dentry {
-                cnt += 1
+            if let ExfatDentry::File(file) = dentry {
+                sub_inodes += 1;
+                if FatAttr::from_bits_truncate(file.attribute).contains(FatAttr::DIRECTORY) {
+                    sub_dirs += 1;
+                }
             }
         }
-        Ok(cnt)
+        Ok((sub_inodes, sub_dirs))
     }
 
     /// Find empty dentry. If not found, expand the clusterchain.
@@ -368,7 +374,10 @@ impl ExfatInodeInner {
             self.page_cache.pages().decommit(start_off..end_off)?;
         }
 
-        self.inode_impl.0.write().num_subdir += 1;
+        self.inode_impl.0.write().num_sub_inodes += 1;
+        if inode_type.is_directory() {
+            self.inode_impl.0.write().num_sub_dirs += 1;
+        }
 
         let pos = self
             .inode_impl
@@ -393,19 +402,19 @@ impl ExfatInodeInner {
 
     /// Read multiple dentry sets from the given position(offset) in this directory.
     /// The number to read is given by dir_cnt.
-    /// Return the new offset after read if success.
+    /// Return (the new offset after read, the number of sub-inodes read).
     fn read_multiple_dirs(
         &self,
         offset: usize,
         dir_cnt: usize,
         visitor: &mut dyn DirentVisitor,
-    ) -> Result<usize> {
+    ) -> Result<(usize, usize)> {
         let impl_ = self.inode_impl.0.read();
         if !impl_.inode_type.is_directory() {
             return_errno!(Errno::ENOTDIR)
         }
         if dir_cnt == 0 {
-            return Ok(offset);
+            return Ok((offset, 0));
         }
 
         let fs = self.fs();
@@ -427,15 +436,18 @@ impl ExfatInodeInner {
             let dentry = dentry_result.unwrap()?;
 
             if let ExfatDentry::File(file) = dentry {
-                let inode = self.read_single_dir(&file, &mut iter, current_off, visitor)?;
-                current_off += inode.0.read().inode_impl.0.read().dentry_set_size;
-                dir_read += 1;
+                if let Ok(inode) = self.read_single_dir(&file, &mut iter, current_off, visitor) {
+                    current_off += inode.0.read().inode_impl.0.read().dentry_set_size;
+                    dir_read += 1;
+                } else {
+                    return Ok((current_off, dir_read));
+                }
             } else {
                 current_off += DENTRY_SIZE;
             }
         }
 
-        Ok(current_off)
+        Ok((current_off, dir_read))
     }
 
     /// Read a dentry set at offset. Return the corresponding inode.
@@ -509,7 +521,7 @@ impl ExfatInodeInner {
     fn lookup_by_name(&self, target_name: &str) -> Result<(Arc<ExfatInode>, usize, usize)> {
         let fs = self.fs();
         let impl_ = self.inode_impl.0.read();
-        let sub_dir = impl_.num_subdir;
+        let sub_dir = impl_.num_sub_inodes;
         let mut name_and_offsets: Vec<(String, usize)> = vec![];
 
         impl DirentVisitor for Vec<(String, usize)> {
@@ -541,6 +553,7 @@ impl ExfatInodeInner {
     }
 
     fn get_parent_inode(&self) -> Option<Arc<ExfatInode>> {
+        //FIXME: What if parent inode is evicted? How can I find it?
         self.fs()
             .find_opened_inode(self.inode_impl.0.read().parent_hash)
     }
@@ -732,9 +745,18 @@ impl ExfatInodeInner {
                 .decommit(offset..offset + buf.len())?;
         }
 
-        self.inode_impl.0.write().num_subdir -= 1;
         // FIXME: We must make sure that there are no spare tailing clusters in a directory.
         Ok(())
+    }
+
+    fn free_all_clusters(&mut self) -> Result<()> {
+        let is_sync = self.inode_impl.0.read().is_sync();
+        let num_clusters = self.inode_impl.0.read().num_clusters();
+        self.inode_impl
+            .0
+            .write()
+            .start_chain
+            .remove_clusters_from_tail(num_clusters, is_sync)
     }
 
     fn sync_inode(&mut self, fs_guard: &MutexGuard<()>) -> Result<()> {
@@ -779,8 +801,10 @@ pub struct ExfatInodeImpl_ {
     /// Creation time.
     ctime: DosTimestamp,
 
-    /// Number of sub directories
-    num_subdir: u32,
+    /// Number of sub inodes
+    num_sub_inodes: u32,
+    /// Number of sub inodes
+    num_sub_dirs: u32,
 
     /// ExFAT uses UTF-16 encoding, rust use utf-8 for string processing.
     name: ExfatName,
@@ -933,7 +957,7 @@ impl ExfatInodeImpl_ {
         if !self.inode_type.is_directory() {
             return_errno!(Errno::ENOTDIR)
         }
-        Ok(self.num_subdir == 0)
+        Ok(self.num_sub_inodes == 0)
     }
 
     /// Copy metadata from the given inode.
@@ -998,7 +1022,7 @@ impl Inode for ExfatInode {
         let blk_size = inner.fs().super_block().sector_size as usize;
 
         let nlinks = if impl_.inode_type.is_directory() {
-            (impl_.num_subdir + 2) as usize
+            (impl_.num_sub_dirs + 2) as usize
         } else {
             1
         };
@@ -1031,8 +1055,7 @@ impl Inode for ExfatInode {
     }
 
     fn set_mode(&self, mode: InodeMode) {
-        //Mode Set not supported.
-        todo!("Set inode to readonly")
+        //Pass through
     }
 
     fn atime(&self) -> Duration {
@@ -1268,9 +1291,9 @@ impl Inode for ExfatInode {
 
     fn readdir_at(&self, dir_cnt: usize, visitor: &mut dyn DirentVisitor) -> Result<usize> {
         let inner = self.0.read();
-        let num_subdir = inner.inode_impl.0.read().num_subdir;
+        let num_sub_inodes = inner.inode_impl.0.read().num_sub_inodes;
 
-        if dir_cnt >= num_subdir as usize {
+        if dir_cnt >= (num_sub_inodes + 2) as usize {
             return Ok(0);
         }
 
@@ -1279,14 +1302,44 @@ impl Inode for ExfatInode {
         let fs = inner.fs();
         let guard = fs.lock();
 
-        //Skip previous directories.
-        let off = inner.read_multiple_dirs(0, dir_cnt, &mut empty_visitor)?;
+        let mut dir_read = 0usize;
 
-        inner.read_multiple_dirs(off, num_subdir as usize - dir_cnt, visitor)?;
+        if dir_cnt == 0
+            && visitor
+                .visit(
+                    ".",
+                    inner.inode_impl.0.read().ino as u64,
+                    inner.inode_impl.0.read().inode_type,
+                    0xFFFFFFFFFFFFFFFEusize,
+                )
+                .is_ok()
+        {
+            dir_read += 1;
+        }
+
+        if dir_cnt <= 1 {
+            let parent_inode = inner.get_parent_inode().unwrap();
+            let ino = parent_inode.0.read().inode_impl.0.read().ino as u64;
+            let type_ = parent_inode.0.read().inode_impl.0.read().inode_type;
+            if visitor
+                .visit("..", ino, type_, 0xFFFFFFFFFFFFFFFFusize)
+                .is_ok()
+            {
+                dir_read += 1;
+            }
+        }
+
+        let dir_to_skip = if dir_cnt >= 2 { dir_cnt - 2 } else { 0 };
+
+        //Skip previous directories.
+        let (off, _) = inner.read_multiple_dirs(0, dir_to_skip, &mut empty_visitor)?;
+        let (_, read) =
+            inner.read_multiple_dirs(off, num_sub_inodes as usize - dir_to_skip, visitor)?;
+        dir_read += read;
 
         inner.inode_impl.0.write().set_atime(DosTimestamp::now()?);
 
-        Ok(num_subdir as usize - dir_cnt)
+        Ok(dir_read)
     }
 
     fn link(&self, old: &Arc<dyn Inode>, name: &str) -> Result<()> {
@@ -1304,6 +1357,8 @@ impl Inode for ExfatInode {
             return_errno!(Errno::EISDIR)
         }
 
+        let is_sync = self.0.read().inode_impl.0.read().is_sync();
+
         let fs = self.0.read().fs();
         let guard = fs.lock();
 
@@ -1312,10 +1367,13 @@ impl Inode for ExfatInode {
             return_errno!(Errno::EISDIR)
         }
 
-        inode.0.write().resize(0)?;
-        inode.0.write().page_cache.pages().resize(0)?;
+        //FIXME: We should not remove the content of this file if the file is opened.
+        //FIXME: When should I reclaim the space?
+        // inode.0.write().resize(0)?;
+        // inode.0.write().page_cache.pages().resize(0)?;
 
         self.0.write().delete_dentry_set(offset, len)?;
+        self.0.write().inode_impl.0.write().num_sub_inodes -= 1;
 
         let dentry_position = self
             .0
@@ -1326,6 +1384,7 @@ impl Inode for ExfatInode {
             .start_chain
             .walk_to_cluster_at_offset(offset)?;
 
+        //FIXME: When should I remove the inode?
         fs.remove_inode(make_hash_index(
             dentry_position.0.cluster_id(),
             dentry_position.1 as u32,
@@ -1374,6 +1433,8 @@ impl Inode for ExfatInode {
         inode.0.write().page_cache.pages().resize(0)?;
 
         self.0.write().delete_dentry_set(offset, len)?;
+        self.0.write().inode_impl.0.write().num_sub_inodes -= 1;
+        self.0.write().inode_impl.0.write().num_sub_dirs -= 1;
 
         let dentry_position = self
             .0
@@ -1531,7 +1592,7 @@ impl Inode for ExfatInode {
             .is_directory()
         {
             let new_parent_hash = old_inode.hash_index();
-            let sub_dir = old_inode.0.read().inode_impl.0.read().num_subdir;
+            let sub_dir = old_inode.0.read().inode_impl.0.read().num_sub_inodes;
             let mut child_offsets: Vec<usize> = vec![];
             impl DirentVisitor for Vec<usize> {
                 fn visit(
@@ -1565,6 +1626,18 @@ impl Inode for ExfatInode {
 
         // delete 'old_name' dentries
         self.0.write().delete_dentry_set(old_offset, old_len)?;
+        self.0.write().inode_impl.0.write().num_sub_inodes -= 1;
+        if old_inode
+            .0
+            .read()
+            .inode_impl
+            .0
+            .read()
+            .inode_type
+            .is_directory()
+        {
+            self.0.write().inode_impl.0.write().num_sub_dirs -= 1;
+        }
 
         // remove the exist 'new_name' file(include file contents, inode and dentries)
         if let Ok((exist_inode, exist_offset, exist_len)) = lookup_exist_result {
@@ -1576,6 +1649,18 @@ impl Inode for ExfatInode {
                 .0
                 .write()
                 .delete_dentry_set(exist_offset, exist_len)?;
+            target_.0.write().inode_impl.0.write().num_sub_inodes -= 1;
+            if exist_inode
+                .0
+                .read()
+                .inode_impl
+                .0
+                .read()
+                .inode_type
+                .is_directory()
+            {
+                target_.0.write().inode_impl.0.write().num_sub_dirs -= 1;
+            }
         }
 
         let now = DosTimestamp::now()?;
@@ -1609,7 +1694,7 @@ impl Inode for ExfatInode {
     }
 
     fn ioctl(&self, cmd: IoctlCmd, arg: usize) -> Result<i32> {
-        todo!()
+        return_errno_with_message!(Errno::EINVAL, "unsupported operation")
     }
 
     fn sync(&self) -> Result<()> {

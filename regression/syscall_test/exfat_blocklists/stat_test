@@ -1,0 +1,6 @@
+StatTest.FstatatSymlinkDir
+StatTest.FstatatSymlinkDirWithTrailingSlash
+StatTest.FstatatSymlinkDirWithTrailingSlashSameInode
+StatTest.LstatSymlinkDir
+StatTest.LstatELOOPPath
+SimpleStatTest.AnonDeviceAllocatesUniqueInodesAcrossSaveRestore
