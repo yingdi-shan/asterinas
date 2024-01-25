@@ -124,8 +124,11 @@ impl DirInMemory {
                 let mut sub: Vec<String> = Vec::new();
                 let readdir_result = self.inode.readdir_at(0, &mut sub);
                 assert!(readdir_result.is_ok(), "Fail to read directory",);
-                assert!(readdir_result.unwrap() == self.sub_dirs.len());
-                assert!(sub.len() == self.sub_dirs.len());
+                assert!(readdir_result.unwrap() == self.sub_dirs.len() + 2);
+                assert!(sub.len() == self.sub_dirs.len() + 2);
+
+                sub.remove(0);
+                sub.remove(0);
 
                 sub.sort();
                 self.sub_names.sort();
