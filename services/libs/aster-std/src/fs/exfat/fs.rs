@@ -40,7 +40,7 @@ pub struct ExfatFS {
     highest_inode_number: AtomicUsize,
 
     //inodes are indexed by their hash_value.
-    inodes: RwLock<HashMap<usize, Arc<ExfatInode>>>,
+    inodes: RwMutex<HashMap<usize, Arc<ExfatInode>>>,
 
     //Cache for fat table
     fat_cache: RwLock<LruCache<ClusterID, ClusterID>>,
@@ -69,7 +69,7 @@ impl ExfatFS {
             upcase_table: Arc::new(SpinLock::new(ExfatUpcaseTable::empty())),
             mount_option,
             highest_inode_number: AtomicUsize::new(EXFAT_ROOT_INO + 1),
-            inodes: RwLock::new(HashMap::new()),
+            inodes: RwMutex::new(HashMap::new()),
             fat_cache: RwLock::new(LruCache::<ClusterID, ClusterID>::new(
                 NonZeroUsize::new(LRU_CACHE_SIZE).unwrap(),
             )),
@@ -377,9 +377,9 @@ impl PageCacheBackend for ExfatFS {
 
 impl FileSystem for ExfatFS {
     fn sync(&self) -> Result<()> {
-        self.bitmap.lock().sync()?;
+        let guard = self.lock();
         for inode in self.inodes.read().values() {
-            inode.sync()?;
+            inode.sync_inode(&guard)?;
         }
         self.meta_cache.evict_range(0..self.fs_size())?;
         Ok(())

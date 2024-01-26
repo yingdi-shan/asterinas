@@ -43,7 +43,7 @@ pub struct BlockDevice {
 impl BlockDevice {
     /// Creates a new VirtIO-Block driver and registers it.
     pub(crate) fn init(transport: Box<dyn VirtioTransport>) -> Result<(), VirtioDeviceError> {
-        let addr = transport.get_device_addr().to_string();
+        let name = transport.get_device_name();
 
         let block_device = {
             let device = DeviceInner::init(transport)?;
@@ -54,7 +54,7 @@ impl BlockDevice {
         };
 
         aster_block::register_device(
-            super::DEVICE_NAME.to_string() + &addr,
+            super::DEVICE_NAME.to_string() + &name,
             Arc::new(block_device),
         );
         Ok(())
@@ -155,7 +155,7 @@ impl DeviceInner {
             return Err(VirtioDeviceError::QueuesAmountDoNotMatch(num_queues, 1));
         }
 
-        let device_name = format!("{}{}", super::DEVICE_NAME, transport.get_device_addr());
+        let device_name = format!("{}{}", super::DEVICE_NAME, transport.get_device_name());
 
         let handle_block_device = move |_: &TrapFrame| {
             aster_block::get_device(device_name.as_str())

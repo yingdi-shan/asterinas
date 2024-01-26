@@ -244,6 +244,11 @@ impl ExfatInode {
             ino,
         )
     }
+
+    pub(super) fn sync_inode(&self, fs_guard: &MutexGuard<()>) -> Result<()> {
+        self.0.write().sync_inode(fs_guard)?;
+        Ok(())
+    }
 }
 
 /// In-memory rust object that represents a file or folder.
@@ -947,8 +952,8 @@ impl ExfatInodeImpl_ {
     }
 
     fn is_sync(&self) -> bool {
-        //false
-        true
+        false
+        //true
         //TODO:Judge whether sync is necessary.
     }
 
