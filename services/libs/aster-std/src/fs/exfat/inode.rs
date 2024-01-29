@@ -66,6 +66,15 @@ impl ExfatInode {
         self.0.read().inode_impl.0.read().hash_index()
     }
 
+    pub(super) fn is_deleted(&self) -> bool {
+        self.0.read().inode_impl.0.read().is_deleted
+    }
+
+    pub(super) fn reclaim_space(&self) -> Result<()> {
+        self.0.write().resize(0)?;
+        self.0.write().page_cache.pages().resize(0)
+    }
+
     pub(super) fn build_root_inode(
         fs_weak: Weak<ExfatFS>,
         root_chain: ExfatChain,
@@ -102,6 +111,7 @@ impl ExfatInode {
             num_sub_inodes: 0,
             num_sub_dirs: 0,
             name,
+            is_deleted: false,
             parent_hash: 0,
             fs: fs_weak,
         })));
@@ -205,6 +215,7 @@ impl ExfatInode {
             num_sub_inodes: 0,
             num_sub_dirs: 0,
             name,
+            is_deleted: false,
             parent_hash,
             fs: fs_weak,
         })));
@@ -809,6 +820,9 @@ pub struct ExfatInodeImpl_ {
     /// ExFAT uses UTF-16 encoding, rust use utf-8 for string processing.
     name: ExfatName,
 
+    /// Flag for whether the file is deleted. (only valid for files)
+    is_deleted: bool,
+
     //The hash of parent inode.
     parent_hash: usize,
 
@@ -1371,6 +1385,7 @@ impl Inode for ExfatInode {
         //FIXME: When should I reclaim the space?
         // inode.0.write().resize(0)?;
         // inode.0.write().page_cache.pages().resize(0)?;
+        self.0.write().inode_impl.0.write().is_deleted = true;
 
         self.0.write().delete_dentry_set(offset, len)?;
         self.0.write().inode_impl.0.write().num_sub_inodes -= 1;
