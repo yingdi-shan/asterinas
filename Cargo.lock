@@ -353,7 +353,7 @@ dependencies = [
 
 [[package]]
 name = "asterinas"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "aster-frame",
  "aster-framebuffer",

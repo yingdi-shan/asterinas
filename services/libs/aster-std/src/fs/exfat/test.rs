@@ -346,6 +346,8 @@ mod test {
             assert!(read_result.unwrap() == id + 2);
             assert!(sub_inodes.len() == id + 2);
 
+            sub_inodes.remove(0);
+            sub_inodes.remove(0);
             sub_inodes.sort();
 
             for i in 2..sub_inodes.len() {
@@ -1059,7 +1061,7 @@ mod test {
         let mut fs_in_mem = new_fs_in_memory(root);
 
         let max_ops: u32 = 3000;
-        let show_progress_per: u32 = 100;
+
         for idx in 0..max_ops {
             let (file_or_dir, op) = generate_random_operation(&mut fs_in_mem, idx);
             file_or_dir.execute_and_test(op);

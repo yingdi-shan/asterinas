@@ -1,16 +1,50 @@
 # Summary
 
-- [Introduction](README.md)
+[Introduction](README.md)
 
-# Design
+# Asterinas Kernel
 
-- [Privilege Separation](privilege_separation/README.md)
-    - [Case Study 1: Syscall Workflow](privilege_separation/syscall_workflow.md)
-    - [Case Study 2: Drivers for Virtio Devices on PCI](privilege_separation/pci_virtio_drivers.md)
-- [Everything as a Capability](capabilities/README.md)
-    - [Type-Level Programming in Rust](capabilities/type_level_programming.md)
-    - [Zero-Cost Capabilities](capabilities/zero_cost_capabilities.md)
-    - [CapComp: Zero-Cost Capabilities and Components](capabilities/capcomp.md)
-- [Trustworthy Containers]()
-- [TEEs as Top-Tier Targets]()
-- [Fast User-Mode Development]()
+* [Getting Started](kernel/README.md)
+* [Advanced Build and Test Instructions](kernel/advanced-instructions.md)
+* [The Framekernel Architecture](kernel/the-framekernel-architecture.md)
+* [Linux Compatibility](kernel/linux-compatibility.md)
+* [Roadmap](kernel/roadmap.md)
+
+# Asterinas Framework
+
+* [An Overview of the Framework](framework/README.md)
+* [Example: Writing a Kernel in 100 Lines of Safe Rust](framework/a-100-line-kernel.md)
+* [Example: Writing a Driver in 100 Lines of Safe Rust]()
+* [Soundness Analysis]()
+
+# Asterinas OSDK
+
+* [OSDK User Guide]()
+    * [Why OSDK]()
+    * [Creating an OS Project]()
+    * [Testing or Running an OS Project]()
+    * [Working in a Workspace]()
+* [OSDK User Reference]()
+    * [Commands]()
+        * [cargo osdk new]()
+        * [cargo osdk build]()
+        * [cargo osdk run]()
+        * [cargo osdk test]()
+    * [Manifest]()
+
+# How to Contribute
+
+* [Before You Contribute]()
+* [Code Organization]()
+* [Style Guidelines]()
+    * [General Guidelines]() 
+    * [Rust Guidelines]() 
+    * [Git Guidelines]() 
+* [Community]()
+* [Code of Conduct]()
+
+# Request for Comments (RFC)
+
+* [RFC Overview]()
+    * [RFC-0001: RFC Process]()
+    * [RFC-0002: Operating System Development Kit (OSDK)]()
