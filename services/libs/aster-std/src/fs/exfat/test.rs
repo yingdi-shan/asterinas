@@ -311,9 +311,9 @@ mod test {
         let fs = load_exfat();
         let cluster_size = fs.cluster_size();
         let root = fs.root_inode() as Arc<dyn Inode>;
-        let mut free_clusters_before_create: Vec<u32> = Vec::new();
+        //let mut free_clusters_before_create: Vec<u32> = Vec::new();
         for (file_id, file_name) in file_names.iter().enumerate() {
-            free_clusters_before_create.push(fs.free_clusters());
+            //free_clusters_before_create.push(fs.free_clusters());
             let inode = create_file(root.clone(), file_name);
 
             if fs.free_clusters() > file_id as u32 {
@@ -350,8 +350,14 @@ mod test {
             sub_inodes.remove(0);
             sub_inodes.sort();
 
-            for i in 0..sub_inodes.len() {
-                assert!(sub_inodes[i].cmp(&file_names[i]).is_eq())
+            for i in 2..sub_inodes.len() {
+                assert!(
+                    sub_inodes[i].cmp(&file_names[i - 2]).is_eq(),
+                    "File name mismatch at {:?}: read {:?} expect {:?}",
+                    i,
+                    sub_inodes[i],
+                    file_names[i - 2]
+                );
             }
         }
     }

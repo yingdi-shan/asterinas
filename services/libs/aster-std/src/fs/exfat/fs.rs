@@ -131,8 +131,14 @@ impl ExfatFS {
     }
 
     pub(super) fn evict_inode(&self, hash: usize) -> Result<()> {
+        error!("evict inode called");
         if let Some(inode) = self.inodes.read().get(&hash).cloned() {
-            inode.sync()?;
+            if inode.is_deleted() {
+                inode.reclaim_space()?;
+            }
+            else {
+                inode.sync()?;
+            }
         }
         self.inodes.write().remove(&hash);
         Ok(())
