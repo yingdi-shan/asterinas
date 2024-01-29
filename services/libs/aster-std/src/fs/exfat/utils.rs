@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 use crate::prelude::*;
 use core::{ops::Range, time::Duration};
 use time::{OffsetDateTime, PrimitiveDateTime, Time};

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 use super::{Inode, InodeMode, InodeType};
 use crate::device::Random;
 use crate::prelude::*;
