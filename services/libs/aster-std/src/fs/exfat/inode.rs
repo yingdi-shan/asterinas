@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 use crate::fs::exfat::dentry::ExfatDentryIterator;
 use crate::fs::exfat::fat::ExfatChain;
 

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 use core::ops::Range;
 
 use aster_frame::vm::VmIo;

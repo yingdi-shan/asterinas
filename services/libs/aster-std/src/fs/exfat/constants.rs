@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 pub const EXFAT_CLUSTERS_UNTRACKED: u32 = !0;
 
 pub const ROOT_INODE_HASH: usize = 0;
@@ -6,12 +8,6 @@ pub const ROOT_INODE_HASH: usize = 0;
 pub const NLS_NAME_NO_LOSSY: u8 = 0;
 pub const NLS_NAME_LOSSY: u8 = 1;
 pub const NLS_NAME_OVERLEN: u8 = 2;
-
-pub const EXFAT_HASH_BITS: u8 = 8;
-pub const EXFAT_HASH_SIZE: u32 = 1 << EXFAT_HASH_BITS;
-
-// Other pub constants
-pub const DIR_DELETED: u32 = 0xFFFFFFF7;
 
 // Other pub constants
 

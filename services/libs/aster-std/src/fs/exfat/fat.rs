@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 use super::{
     bitmap::{ExfatBitmap, EXFAT_RESERVED_CLUSTERS},
     constants::EXFAT_FIRST_CLUSTER,

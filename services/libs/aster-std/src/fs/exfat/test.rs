@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 #[cfg(ktest)]
 mod test {
     use crate::device::Random;
