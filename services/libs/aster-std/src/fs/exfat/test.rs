@@ -350,13 +350,13 @@ mod test {
             sub_inodes.remove(0);
             sub_inodes.sort();
 
-            for i in 2..sub_inodes.len() {
+            for i in 0..sub_inodes.len() {
                 assert!(
-                    sub_inodes[i].cmp(&file_names[i - 2]).is_eq(),
+                    sub_inodes[i].cmp(&file_names[i]).is_eq(),
                     "File name mismatch at {:?}: read {:?} expect {:?}",
                     i,
                     sub_inodes[i],
-                    file_names[i - 2]
+                    file_names[i]
                 );
             }
         }
@@ -436,7 +436,7 @@ mod test {
     fn test_rename_file() {
         let fs = load_exfat();
         let root = fs.root_inode() as Arc<dyn Inode>;
-        let file_name = "hi.txt";
+        let file_name = "HI.TXT";
         let a_inode = create_file(root.clone(), file_name);
 
         const BUF_SIZE: usize = 7 * PAGE_SIZE + 11;
@@ -447,7 +447,7 @@ mod test {
         }
         let _ = a_inode.write_at(0, &buf);
 
-        let new_name = "hello.txt";
+        let new_name = "HELLO.TXT";
         let rename_result = root.rename(file_name, &root.clone(), new_name);
         assert!(
             rename_result.is_ok(),
@@ -490,9 +490,9 @@ mod test {
         );
 
         // test rename between different directories
-        let sub_folder_name = "test";
+        let sub_folder_name = "TEST";
         let sub_folder = create_folder(root.clone(), sub_folder_name);
-        let sub_file_name = "a.txt";
+        let sub_file_name = "A.TXT";
         create_file(sub_folder.clone(), sub_file_name);
         let rename_result = sub_folder.rename(sub_file_name, &root.clone(), sub_file_name);
         assert!(
@@ -547,13 +547,13 @@ mod test {
     fn test_rename_dir() {
         let fs = load_exfat();
         let root = fs.root_inode() as Arc<dyn Inode>;
-        let old_folder_name = "old_folder";
+        let old_folder_name = "OLD_FOLDER";
         let old_folder = create_folder(root.clone(), old_folder_name);
-        let child_file_name = "a.txt";
+        let child_file_name = "A.TXT";
         create_file(old_folder.clone(), child_file_name);
 
         // Test rename a folder, the sub-directories should remain.
-        let new_folder_name = "new_folder";
+        let new_folder_name = "NEW_FOLDER";
         let rename_result = root.rename(old_folder_name, &root.clone(), new_folder_name);
         assert!(
             rename_result.is_ok(),
@@ -572,11 +572,11 @@ mod test {
         assert!(sub_dirs.len() == 3 && sub_dirs[2].eq(child_file_name));
 
         // Test rename directory when the new_name is exist.
-        let exist_folder_name = "exist_folder";
+        let exist_folder_name = "EXIST_FOLDER";
         let exist_folder = create_folder(root.clone(), exist_folder_name);
         create_file(exist_folder.clone(), child_file_name);
 
-        let exist_file_name = "exist_file.txt";
+        let exist_file_name = "EXIST_FILE.TXT";
         create_file(root.clone(), exist_file_name);
 
         let rename_dir_to_an_exist_file =
