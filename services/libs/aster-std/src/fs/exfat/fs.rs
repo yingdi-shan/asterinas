@@ -135,8 +135,7 @@ impl ExfatFS {
         if let Some(inode) = self.inodes.read().get(&hash).cloned() {
             if inode.is_deleted() {
                 inode.reclaim_space()?;
-            }
-            else {
+            } else {
                 inode.sync()?;
             }
         }
