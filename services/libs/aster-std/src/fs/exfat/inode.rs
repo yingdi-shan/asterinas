@@ -541,6 +541,9 @@ impl ExfatInodeInner {
         let impl_ = self.inode_impl.0.read();
         let sub_dir = impl_.num_sub_inodes;
         let mut name_and_offsets: Vec<(String, usize)> = vec![];
+        let upcase_table = fs.upcase_table();
+        let mut up_tar: Vec<u16> = target_name.encode_utf16().collect();
+        upcase_table.lock().transform_to_upcase(&mut up_tar)?;
 
         impl DirentVisitor for Vec<(String, usize)> {
             fn visit(
@@ -558,7 +561,10 @@ impl ExfatInodeInner {
         self.read_multiple_dirs(0, sub_dir as usize, &mut name_and_offsets)?;
 
         for (name, offset) in name_and_offsets {
-            if name.eq(target_name) {
+            let mut up_name: Vec<u16> = name.encode_utf16().collect();
+            upcase_table.lock().transform_to_upcase(&mut up_name)?;
+
+            if up_name.eq(&up_tar) {
                 let chain_off = impl_.start_chain.walk_to_cluster_at_offset(offset)?;
                 let hash = make_hash_index(chain_off.0.cluster_id(), chain_off.1 as u32);
                 let inode = fs.find_opened_inode(hash).unwrap();
@@ -992,6 +998,7 @@ impl ExfatInodeImpl_ {
         self.ctime = impl_.ctime;
         self.mtime = impl_.mtime;
         self.name = ExfatName::from_str(&impl_.name.to_string()).unwrap();
+        self.is_deleted = impl_.is_deleted;
         self.parent_hash = impl_.parent_hash;
     }
 
