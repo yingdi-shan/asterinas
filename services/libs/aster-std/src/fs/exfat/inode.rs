@@ -200,7 +200,7 @@ impl ExfatInode {
             chain_flag,
         )?;
 
-        let name = dentry_set.get_name()?;
+        let name = dentry_set.get_name(fs.upcase_table())?;
         let inode_impl = Arc::new(ExfatInodeImpl(RwMutex::new(ExfatInodeImpl_ {
             ino,
             dentry_set_position,
@@ -541,9 +541,7 @@ impl ExfatInodeInner {
         let impl_ = self.inode_impl.0.read();
         let sub_dir = impl_.num_sub_inodes;
         let mut name_and_offsets: Vec<(String, usize)> = vec![];
-        let upcase_table = fs.upcase_table();
-        let mut up_tar: Vec<u16> = target_name.encode_utf16().collect();
-        upcase_table.lock().transform_to_upcase(&mut up_tar)?;
+        let up_tar = (ExfatName::from_str(target_name, fs.upcase_table())?).to_string();
 
         impl DirentVisitor for Vec<(String, usize)> {
             fn visit(
@@ -561,10 +559,7 @@ impl ExfatInodeInner {
         self.read_multiple_dirs(0, sub_dir as usize, &mut name_and_offsets)?;
 
         for (name, offset) in name_and_offsets {
-            let mut up_name: Vec<u16> = name.encode_utf16().collect();
-            upcase_table.lock().transform_to_upcase(&mut up_name)?;
-
-            if up_name.eq(&up_tar) {
+            if name.eq(&up_tar) {
                 let chain_off = impl_.start_chain.walk_to_cluster_at_offset(offset)?;
                 let hash = make_hash_index(chain_off.0.cluster_id(), chain_off.1 as u32);
                 let inode = fs.find_opened_inode(hash).unwrap();
@@ -997,7 +992,7 @@ impl ExfatInodeImpl_ {
         self.atime = impl_.atime;
         self.ctime = impl_.ctime;
         self.mtime = impl_.mtime;
-        self.name = ExfatName::from_str(&impl_.name.to_string()).unwrap();
+        self.name = impl_.name.clone();
         self.is_deleted = impl_.is_deleted;
         self.parent_hash = impl_.parent_hash;
     }
@@ -1544,8 +1539,10 @@ impl Inode for ExfatInode {
         }
 
         // rename something to itself, return success directly
+        let up_old_name = (ExfatName::from_str(old_name, fs.upcase_table())?).to_string();
+        let up_new_name = (ExfatName::from_str(new_name, fs.upcase_table())?).to_string();
         if self.0.read().inode_impl.0.read().ino == target_.0.read().inode_impl.0.read().ino
-            && old_name.eq(new_name)
+            && up_old_name.eq(&up_new_name)
         {
             // need modify times?
             return Ok(());

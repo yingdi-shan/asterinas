@@ -80,10 +80,17 @@ impl ExfatUpcaseTable {
 
     pub fn transform_to_upcase(&self, buf: &mut [u16]) -> Result<()> {
         for value in buf {
-            if (*value as usize) < UPCASE_MANDATORY_SIZE {
-                *value = self.upcase_table[*value as usize];
-            }
+            *value = self.transform_to_upcase_char(*value)?;
         }
         Ok(())
+    }
+
+    pub fn transform_to_upcase_char(&self, value: u16) -> Result<u16> {
+        if (value as usize) < UPCASE_MANDATORY_SIZE {
+            return Ok(self.upcase_table[value as usize]);
+        }
+        else {
+            return_errno!(Errno::EINVAL);
+        }
     }
 }
