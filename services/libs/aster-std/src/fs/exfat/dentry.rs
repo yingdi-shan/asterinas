@@ -535,13 +535,15 @@ pub struct ExfatStreamDentry {
     pub(super) size: u64,          // file maximum size (not used in init a inode?)
 }
 
+pub type UnicodeChar = u16;
+
 #[repr(C, packed)]
 #[derive(Clone, Debug, Default, Copy, Pod)]
 // MUST be immediately follow the StreamDentry in the number of NameLength/15 rounded up
 pub struct ExfatNameDentry {
-    pub(super) dentry_type: u8,                          // 0xC1
-    pub(super) flags: u8,                                // first two bits must be zero
-    pub(super) unicode_0_14: [u16; EXFAT_FILE_NAME_LEN], // 15 (or less) characters of file name
+    pub(super) dentry_type: u8,                                  // 0xC1
+    pub(super) flags: u8,                                        // first two bits must be zero
+    pub(super) unicode_0_14: [UnicodeChar; EXFAT_FILE_NAME_LEN], // 15 (or less) characters of file name
 }
 
 #[repr(C, packed)]
@@ -615,10 +617,10 @@ pub struct ExfatDeletedDentry {
 }
 
 #[derive(Default, Debug)]
-pub struct ExfatName(Vec<u16>);
+pub struct ExfatName(Vec<UnicodeChar>);
 
 impl ExfatName {
-    pub(super) fn push(&mut self, value: u16) -> Result<()> {
+    pub(super) fn push(&mut self, value: UnicodeChar) -> Result<()> {
         if !Self::is_valid_char(value) {
             return_errno_with_message!(Errno::EINVAL, "not a valid char")
         }
@@ -627,7 +629,7 @@ impl ExfatName {
         Ok(())
     }
 
-    fn is_valid_char(value: u16) -> bool {
+    fn is_valid_char(value: UnicodeChar) -> bool {
         match value {
             0..0x20 => false, //Control Code
             0x22 => false,    //Quotation Mark

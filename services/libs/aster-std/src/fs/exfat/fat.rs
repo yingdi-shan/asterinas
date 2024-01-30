@@ -9,6 +9,7 @@ use crate::prelude::*;
 use core::mem::size_of;
 
 pub type ClusterID = u32;
+pub(super) const FAT_ENTRY_SIZE: usize = size_of::<ClusterID>();
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum FatValue {
@@ -18,10 +19,9 @@ pub enum FatValue {
     EndOfChain,
 }
 
-pub const EXFAT_EOF_CLUSTER: ClusterID = 0xFFFFFFFF;
-pub const EXFAT_BAD_CLUSTER: ClusterID = 0xFFFFFFF7;
-pub const EXFAT_FREE_CLUSTER: ClusterID = 0;
-pub const FAT_ENTRY_SIZE: usize = size_of::<ClusterID>();
+const EXFAT_EOF_CLUSTER: ClusterID = 0xFFFFFFFF;
+const EXFAT_BAD_CLUSTER: ClusterID = 0xFFFFFFF7;
+const EXFAT_FREE_CLUSTER: ClusterID = 0;
 
 impl From<ClusterID> for FatValue {
     fn from(value: ClusterID) -> Self {
@@ -115,7 +115,7 @@ impl ExfatChain {
         !self.flags().contains(FatChainFlags::FAT_CHAIN_NOT_IN_USE)
     }
 
-    pub(super) fn set_flags(&mut self, flags: FatChainFlags) {
+    fn set_flags(&mut self, flags: FatChainFlags) {
         self.flags = flags;
     }
 
@@ -282,9 +282,8 @@ impl ExfatChain {
 }
 
 pub trait ClusterAllocator {
-    fn extend_clusters(&mut self, num_to_be_allocated: u32, sync_bitmap: bool)
-        -> Result<ClusterID>;
-    fn remove_clusters_from_tail(&mut self, free_num: u32, sync_bitmap: bool) -> Result<()>;
+    fn extend_clusters(&mut self, num_to_be_allocated: u32, sync: bool) -> Result<ClusterID>;
+    fn remove_clusters_from_tail(&mut self, free_num: u32, sync: bool) -> Result<()>;
 }
 
 impl ClusterAllocator for ExfatChain {
@@ -297,7 +296,7 @@ impl ClusterAllocator for ExfatChain {
         let bitmap_binding = fs.bitmap();
         let mut bitmap = bitmap_binding.lock();
 
-        if num_to_be_allocated > bitmap.free_clusters() {
+        if num_to_be_allocated > bitmap.num_free_clusters() {
             return_errno!(Errno::ENOSPC)
         }
 

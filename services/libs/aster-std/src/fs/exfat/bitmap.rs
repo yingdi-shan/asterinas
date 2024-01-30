@@ -288,7 +288,7 @@ impl ExfatBitmap {
         }
     }
 
-    pub fn free_clusters(&self) -> u32 {
+    pub fn num_free_clusters(&self) -> u32 {
         self.free_cluster_num
     }
 

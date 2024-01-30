@@ -331,7 +331,7 @@ impl ExfatFS {
     }
 
     pub fn free_clusters(&self) -> u32 {
-        self.bitmap.lock().free_clusters()
+        self.bitmap.lock().num_free_clusters()
     }
 
     pub(super) fn cluster_to_off(&self, cluster: u32) -> usize {
