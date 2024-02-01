@@ -69,7 +69,7 @@ pub struct ExfatChain {
 pub type ExfatChainPosition = (ExfatChain, usize);
 
 impl ExfatChain {
-    pub fn new(
+    pub(super) fn new(
         fs: Weak<ExfatFS>,
         current: ClusterID,
         num_clusters: Option<u32>,
@@ -99,15 +99,15 @@ impl ExfatChain {
         self.fs().cluster_size()
     }
 
-    pub fn num_clusters(&self) -> u32 {
+    pub(super) fn num_clusters(&self) -> u32 {
         self.num_clusters
     }
 
-    pub fn cluster_id(&self) -> ClusterID {
+    pub(super) fn cluster_id(&self) -> ClusterID {
         self.current
     }
 
-    pub fn flags(&self) -> FatChainFlags {
+    pub(super) fn flags(&self) -> FatChainFlags {
         self.flags
     }
 
@@ -131,7 +131,7 @@ impl ExfatChain {
     }
 
     //Walk to the cluster at the given offset, return the new relative offset
-    pub fn walk_to_cluster_at_offset(&self, offset: usize) -> Result<ExfatChainPosition> {
+    pub(super) fn walk_to_cluster_at_offset(&self, offset: usize) -> Result<ExfatChainPosition> {
         let cluster_size = self.fs().cluster_size();
         let steps = offset / cluster_size;
         let result_chain = self.walk(steps as u32)?;
@@ -139,7 +139,7 @@ impl ExfatChain {
         Ok((result_chain, result_offset))
     }
 
-    pub fn is_current_cluster_valid(&self) -> bool {
+    pub(super) fn is_current_cluster_valid(&self) -> bool {
         self.fs().is_valid_cluster(self.current)
     }
 
@@ -169,7 +169,7 @@ impl ExfatChain {
     }
 
     //The destination cluster must be a valid cluster.
-    pub fn walk(&self, steps: u32) -> Result<ExfatChain> {
+    pub(super) fn walk(&self, steps: u32) -> Result<ExfatChain> {
         if steps > self.num_clusters {
             return_errno_with_message!(Errno::EINVAL, "invalid walking steps for FAT chain")
         }
@@ -195,7 +195,7 @@ impl ExfatChain {
         )
     }
 
-    // If current capacity is 0(no start_cluster), this means we can choose a allocation type
+    // If current capacity is 0 (no start_cluster), this means we can choose a allocation type
     // We first try continuous allocation
     // If no continuous allocation available, turn to fat allocation
     fn alloc_cluster_from_empty(

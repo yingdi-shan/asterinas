@@ -17,6 +17,8 @@ mod test {
     use aster_block::bio::{BioEnqueueError, BioStatus, BioType, SubmittedBio};
     use aster_block::{request_queue::BioRequestQueue, BlockDevice};
     use aster_frame::vm::{VmAllocOptions, VmIo, VmSegment};
+    use rand::rngs::SmallRng;
+    use rand::SeedableRng;
 
     /// Followings are implementations of memory simulated block device
     pub const SECTOR_SIZE: usize = 512;
@@ -315,10 +317,10 @@ mod test {
         let root = fs.root_inode() as Arc<dyn Inode>;
         //let mut free_clusters_before_create: Vec<u32> = Vec::new();
         for (file_id, file_name) in file_names.iter().enumerate() {
-            //free_clusters_before_create.push(fs.free_clusters());
+            //free_clusters_before_create.push(fs.num_free_clusters());
             let inode = create_file(root.clone(), file_name);
 
-            if fs.free_clusters() > file_id as u32 {
+            if fs.num_free_clusters() > file_id as u32 {
                 let _ = inode.write_at(file_id * cluster_size, &[0, 1, 2, 3, 4]);
             }
         }
@@ -331,7 +333,7 @@ mod test {
             assert!(unlink_result.is_ok(), "Fail to unlink file {:?}", id);
 
             // assert!(
-            //     fs.free_clusters() == free_clusters_before_create[id],
+            //     fs.num_free_clusters() == free_clusters_before_create[id],
             //     "Space is still occupied after unlinking"
             // );
 
@@ -352,13 +354,13 @@ mod test {
             sub_inodes.remove(0);
             sub_inodes.sort();
 
-            for i in 2..sub_inodes.len() {
+            for i in 0..sub_inodes.len() {
                 assert!(
-                    sub_inodes[i].cmp(&file_names[i - 2]).is_eq(),
+                    sub_inodes[i].cmp(&file_names[i]).is_eq(),
                     "File name mismatch at {:?}: read {:?} expect {:?}",
                     i,
                     sub_inodes[i],
-                    file_names[i - 2]
+                    file_names[i]
                 );
             }
         }
@@ -438,7 +440,7 @@ mod test {
     fn test_rename_file() {
         let fs = load_exfat();
         let root = fs.root_inode() as Arc<dyn Inode>;
-        let file_name = "hi.txt";
+        let file_name = "HI.TXT";
         let a_inode = create_file(root.clone(), file_name);
 
         const BUF_SIZE: usize = 7 * PAGE_SIZE + 11;
@@ -449,7 +451,7 @@ mod test {
         }
         let _ = a_inode.write_at(0, &buf);
 
-        let new_name = "hello.txt";
+        let new_name = "HELLO.TXT";
         let rename_result = root.rename(file_name, &root.clone(), new_name);
         assert!(
             rename_result.is_ok(),
@@ -492,9 +494,9 @@ mod test {
         );
 
         // test rename between different directories
-        let sub_folder_name = "test";
+        let sub_folder_name = "TEST";
         let sub_folder = create_folder(root.clone(), sub_folder_name);
-        let sub_file_name = "a.txt";
+        let sub_file_name = "A.TXT";
         create_file(sub_folder.clone(), sub_file_name);
         let rename_result = sub_folder.rename(sub_file_name, &root.clone(), sub_file_name);
         assert!(
@@ -549,13 +551,13 @@ mod test {
     fn test_rename_dir() {
         let fs = load_exfat();
         let root = fs.root_inode() as Arc<dyn Inode>;
-        let old_folder_name = "old_folder";
+        let old_folder_name = "OLD_FOLDER";
         let old_folder = create_folder(root.clone(), old_folder_name);
-        let child_file_name = "a.txt";
+        let child_file_name = "A.TXT";
         create_file(old_folder.clone(), child_file_name);
 
         // Test rename a folder, the sub-directories should remain.
-        let new_folder_name = "new_folder";
+        let new_folder_name = "NEW_FOLDER";
         let rename_result = root.rename(old_folder_name, &root.clone(), new_folder_name);
         assert!(
             rename_result.is_ok(),
@@ -574,11 +576,11 @@ mod test {
         assert!(sub_dirs.len() == 3 && sub_dirs[2].eq(child_file_name));
 
         // Test rename directory when the new_name is exist.
-        let exist_folder_name = "exist_folder";
+        let exist_folder_name = "EXIST_FOLDER";
         let exist_folder = create_folder(root.clone(), exist_folder_name);
         create_file(exist_folder.clone(), child_file_name);
 
-        let exist_file_name = "exist_file.txt";
+        let exist_file_name = "EXIST_FILE.TXT";
         create_file(root.clone(), exist_file_name);
 
         let rename_dir_to_an_exist_file =
@@ -712,7 +714,7 @@ mod test {
         let bitmap_binding = fs.bitmap();
         let mut bitmap = bitmap_binding.lock();
         let total_bits_len = 1000;
-        let initial_free_clusters = bitmap.free_clusters();
+        let initial_free_clusters = bitmap.num_free_clusters();
 
         let range_result =
             bitmap.find_next_free_cluster_range(EXFAT_RESERVED_CLUSTERS, total_bits_len);
@@ -736,7 +738,7 @@ mod test {
 
             let res2 = bitmap.set_bitmap_used(idx, true);
             assert!(
-                res2.is_ok() && bitmap.free_clusters() == initial_free_clusters - 1,
+                res2.is_ok() && bitmap.num_free_clusters() == initial_free_clusters - 1,
                 "Set cluster idx {:?} failed",
                 relative_idx
             );
@@ -750,7 +752,7 @@ mod test {
 
             let res4 = bitmap.set_bitmap_unused(idx, true);
             assert!(
-                res4.is_ok() && bitmap.free_clusters() == initial_free_clusters,
+                res4.is_ok() && bitmap.num_free_clusters() == initial_free_clusters,
                 "Clear cluster idx {:?} failed",
                 relative_idx
             );
@@ -770,7 +772,7 @@ mod test {
         let bitmap_binding = fs.bitmap();
         let mut bitmap = bitmap_binding.lock();
         let total_bits_len = 1000;
-        let initial_free_clusters = bitmap.free_clusters();
+        let initial_free_clusters = bitmap.num_free_clusters();
 
         let range_result =
             bitmap.find_next_free_cluster_range(EXFAT_RESERVED_CLUSTERS, total_bits_len);
@@ -787,7 +789,7 @@ mod test {
         while end_idx <= range_start_idx + total_bits_len {
             let res1 = bitmap.set_bitmap_range_used(start_idx..end_idx, true);
             assert!(
-                res1.is_ok() && bitmap.free_clusters() == initial_free_clusters - chunk_size,
+                res1.is_ok() && bitmap.num_free_clusters() == initial_free_clusters - chunk_size,
                 "Set cluster chunk [{:?}, {:?}) failed",
                 start_idx,
                 end_idx
@@ -806,7 +808,7 @@ mod test {
 
             let res2 = bitmap.set_bitmap_range_unused(start_idx..end_idx, true);
             assert!(
-                res2.is_ok() && bitmap.free_clusters() == initial_free_clusters,
+                res2.is_ok() && bitmap.num_free_clusters() == initial_free_clusters,
                 "Clear cluster chunk [{:?}, {:?}) failed",
                 start_idx,
                 end_idx
@@ -885,7 +887,7 @@ mod test {
         let root = fs.root_inode();
         let f = create_file(root.clone(), "xxx");
         let cluster_size = fs.cluster_size();
-        let initial_free_clusters = fs.free_clusters();
+        let initial_free_clusters = fs.num_free_clusters();
 
         let max_clusters = 1000.min(initial_free_clusters);
         let mut alloc_clusters = 0;
@@ -895,7 +897,7 @@ mod test {
             let resize_result = f.resize(alloc_clusters as usize * cluster_size);
             assert!(
                 resize_result.is_ok()
-                    && fs.free_clusters() == initial_free_clusters - alloc_clusters,
+                    && fs.num_free_clusters() == initial_free_clusters - alloc_clusters,
                 "Fail to linearly expand file to {:?} clusters",
                 alloc_clusters
             );
@@ -907,7 +909,7 @@ mod test {
             let resize_result = f.resize(alloc_clusters as usize * cluster_size);
             assert!(
                 resize_result.is_ok()
-                    && fs.free_clusters() == initial_free_clusters - alloc_clusters,
+                    && fs.num_free_clusters() == initial_free_clusters - alloc_clusters,
                 "Fail to linearly shrink file to {:?} clusters",
                 alloc_clusters
             );
@@ -920,7 +922,7 @@ mod test {
             let resize_result = f.resize(alloc_clusters as usize * cluster_size);
             assert!(
                 resize_result.is_ok()
-                    && fs.free_clusters() == initial_free_clusters - alloc_clusters,
+                    && fs.num_free_clusters() == initial_free_clusters - alloc_clusters,
                 "Fail to expand file from {:?} clusters to {:?} clusters",
                 old_alloc_clusters,
                 alloc_clusters
@@ -936,7 +938,7 @@ mod test {
             let resize_result = f.resize(alloc_clusters as usize * cluster_size);
             assert!(
                 resize_result.is_ok()
-                    && fs.free_clusters() == initial_free_clusters - alloc_clusters,
+                    && fs.num_free_clusters() == initial_free_clusters - alloc_clusters,
                 "Fail to shrink file from {:?} clusters to {:?} clusters",
                 old_alloc_clusters,
                 alloc_clusters
@@ -948,21 +950,21 @@ mod test {
         // Try to allocate a file larger than remaining spaces. This will fail without changing the remaining space.
         let resize_too_large = f.resize(initial_free_clusters as usize * cluster_size + 1);
         assert!(
-            resize_too_large.is_err() && fs.free_clusters() == initial_free_clusters,
+            resize_too_large.is_err() && fs.num_free_clusters() == initial_free_clusters,
             "Fail to deal with a memeory overflow allocation"
         );
 
         // Try to allocate a file of exactly the same size as the remaining spaces. This will succeed.
         let resize_exact = f.resize(initial_free_clusters as usize * cluster_size);
         assert!(
-            resize_exact.is_ok() && fs.free_clusters() == 0,
+            resize_exact.is_ok() && fs.num_free_clusters() == 0,
             "Fail to deal with a exact allocation"
         );
 
         // Free the file just allocated. This will also succeed.
         let free_all = f.resize(0);
         assert!(
-            free_all.is_ok() && fs.free_clusters() == initial_free_clusters,
+            free_all.is_ok() && fs.num_free_clusters() == initial_free_clusters,
             "Fail to free a large chunk"
         );
     }
@@ -981,7 +983,7 @@ mod test {
             file_inodes.push(inode);
         }
 
-        let initial_free_clusters = fs.free_clusters();
+        let initial_free_clusters = fs.num_free_clusters();
         let max_clusters = 10000.min(initial_free_clusters);
         let mut step = 1;
         let mut cur_clusters_per_file = 0;
@@ -991,7 +993,7 @@ mod test {
                     inode.resize((cur_clusters_per_file + step) as usize * cluster_size);
                 assert!(
                     resize_result.is_ok()
-                        && fs.free_clusters()
+                        && fs.num_free_clusters()
                             == initial_free_clusters
                                 - cur_clusters_per_file * file_num
                                 - (file_id as u32 + 1) * step,
@@ -1061,12 +1063,13 @@ mod test {
         let fs = load_exfat();
         let root = fs.root_inode();
         let mut fs_in_mem = new_fs_in_memory(root);
+        let mut rng = SmallRng::seed_from_u64(0);
 
         let max_ops: u32 = 3000;
 
         for idx in 0..max_ops {
-            let (file_or_dir, op) = generate_random_operation(&mut fs_in_mem, idx);
-            file_or_dir.execute_and_test(op);
+            let (file_or_dir, op) = generate_random_operation(&mut fs_in_mem, idx, &mut rng);
+            file_or_dir.execute_and_test(op, &mut rng);
         }
     }
 }

@@ -4,13 +4,15 @@ use align_ext::AlignExt;
 use aster_rights::Full;
 
 use super::{
-    constants::{UNICODE_SIZE, UPCASE_MANDATORY_SIZE},
-    dentry::{ExfatDentry, ExfatDentryIterator, ExfatUpcaseDentry},
+    constants::UNICODE_SIZE,
+    dentry::{ExfatDentry, ExfatDentryIterator, ExfatUpcaseDentry, UTF16Char},
     fat::ExfatChain,
     fs::ExfatFS,
     utils::calc_checksum_32,
 };
 use crate::{fs::exfat::fat::FatChainFlags, prelude::*, vm::vmo::Vmo};
+
+const UPCASE_MANDATORY_SIZE: usize = 128;
 
 #[derive(Debug)]
 pub struct ExfatUpcaseTable {
@@ -20,14 +22,14 @@ pub struct ExfatUpcaseTable {
 }
 
 impl ExfatUpcaseTable {
-    pub fn empty() -> Self {
+    pub(super) fn empty() -> Self {
         Self {
             upcase_table: [0; UPCASE_MANDATORY_SIZE],
             fs: Weak::default(),
         }
     }
 
-    pub fn load_upcase_table(
+    pub(super) fn load_upcase_table(
         fs: Weak<ExfatFS>,
         root_page_cache: Vmo<Full>,
         root_chain: ExfatChain,
@@ -78,12 +80,18 @@ impl ExfatUpcaseTable {
         Ok(res)
     }
 
-    pub fn transform_to_upcase(&self, buf: &mut [u16]) -> Result<()> {
+    pub(super) fn transform_to_upcase(&self, buf: &mut [UTF16Char]) -> Result<()> {
         for value in buf {
-            if (*value as usize) < UPCASE_MANDATORY_SIZE {
-                *value = self.upcase_table[*value as usize];
-            }
+            *value = self.transform_char_to_upcase(*value)?;
         }
         Ok(())
+    }
+
+    pub(super) fn transform_char_to_upcase(&self, value: UTF16Char) -> Result<UTF16Char> {
+        if (value as usize) < UPCASE_MANDATORY_SIZE {
+            return Ok(self.upcase_table[value as usize]);
+        } else {
+            return_errno!(Errno::EINVAL);
+        }
     }
 }

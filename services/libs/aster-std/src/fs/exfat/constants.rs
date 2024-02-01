@@ -43,6 +43,4 @@ pub const EXFAT_MAX_SECT_SIZE_BITS: u8 = 12;
 pub const EXFAT_MIN_TIMESTAMP_SECS: u64 = 315532800;
 pub const EXFAT_MAX_TIMESTAMP_SECS: u64 = 4354819199;
 
-// UpcaseTable pub constants
-pub const UPCASE_MANDATORY_SIZE: usize = 128;
 pub const UNICODE_SIZE: usize = 2;

@@ -200,7 +200,7 @@ impl ExfatInode {
             chain_flag,
         )?;
 
-        let name = dentry_set.get_name()?;
+        let name = dentry_set.get_name(fs.upcase_table())?;
         let inode_impl = Arc::new(ExfatInodeImpl(RwMutex::new(ExfatInodeImpl_ {
             ino,
             dentry_set_position,
@@ -541,6 +541,7 @@ impl ExfatInodeInner {
         let impl_ = self.inode_impl.0.read();
         let sub_dir = impl_.num_sub_inodes;
         let mut name_and_offsets: Vec<(String, usize)> = vec![];
+        let target_upcase = (ExfatName::from_str(target_name, fs.upcase_table())?).to_string();
 
         impl DirentVisitor for Vec<(String, usize)> {
             fn visit(
@@ -558,7 +559,7 @@ impl ExfatInodeInner {
         self.read_multiple_dirs(0, sub_dir as usize, &mut name_and_offsets)?;
 
         for (name, offset) in name_and_offsets {
-            if name.eq(target_name) {
+            if name.eq(&target_upcase) {
                 let chain_off = impl_.start_chain.walk_to_cluster_at_offset(offset)?;
                 let hash = make_hash_index(chain_off.0.cluster_id(), chain_off.1 as u32);
                 let inode = fs.find_opened_inode(hash).unwrap();
@@ -991,7 +992,8 @@ impl ExfatInodeImpl_ {
         self.atime = impl_.atime;
         self.ctime = impl_.ctime;
         self.mtime = impl_.mtime;
-        self.name = ExfatName::from_str(&impl_.name.to_string()).unwrap();
+        self.name = impl_.name.clone();
+        self.is_deleted = impl_.is_deleted;
         self.parent_hash = impl_.parent_hash;
     }
 
@@ -1293,6 +1295,7 @@ impl Inode for ExfatInode {
         let result = inner.add_entry(name, type_, mode)?;
         let _ = fs.insert_inode(result.clone());
 
+        error!("Creating {}", name);
         inner
             .inode_impl
             .0
@@ -1388,10 +1391,6 @@ impl Inode for ExfatInode {
             return_errno!(Errno::EISDIR)
         }
 
-        //FIXME: We should not remove the content of this file if the file is opened.
-        //FIXME: When should I reclaim the space?
-        // inode.0.write().resize(0)?;
-        // inode.0.write().page_cache.pages().resize(0)?;
         self.0.write().inode_impl.0.write().is_deleted = true;
 
         self.0.write().delete_dentry_set(offset, len)?;
@@ -1472,6 +1471,8 @@ impl Inode for ExfatInode {
             dentry_position.1 as u32,
         ));
 
+        error!("Removing dir {}", name);
+
         self.0
             .read()
             .inode_impl
@@ -1537,8 +1538,10 @@ impl Inode for ExfatInode {
         }
 
         // rename something to itself, return success directly
+        let up_old_name = (ExfatName::from_str(old_name, fs.upcase_table())?).to_string();
+        let up_new_name = (ExfatName::from_str(new_name, fs.upcase_table())?).to_string();
         if self.0.read().inode_impl.0.read().ino == target_.0.read().inode_impl.0.read().ino
-            && old_name.eq(new_name)
+            && up_old_name.eq(&up_new_name)
         {
             // need modify times?
             return Ok(());

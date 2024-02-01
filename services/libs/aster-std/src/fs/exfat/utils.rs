@@ -44,10 +44,10 @@ const EXFAT_TIME_ZONE_VALID: u8 = 1 << 7;
 
 #[derive(Default, Debug, Clone, Copy)]
 pub struct DosTimestamp {
-    //Time stamp at the precesion of double seconds.
+    //Timestamp at the precesion of double seconds.
     pub(super) time: u16,
     pub(super) date: u16,
-    //Prececid time in 10ms.
+    //Precise time in 10ms.
     pub(super) increament_10ms: u8,
     pub(super) utc_offset: u8,
 }

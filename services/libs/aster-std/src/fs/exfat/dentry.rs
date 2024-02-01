@@ -13,10 +13,11 @@ use super::constants::{EXFAT_FILE_NAME_LEN, MAX_NAME_LENGTH};
 use super::fat::FatChainFlags;
 use super::fs::ExfatFS;
 use super::inode::FatAttr;
+use super::upcase_table::ExfatUpcaseTable;
 use super::utils::{calc_checksum_16, DosTimestamp};
 
 pub const DENTRY_SIZE: usize = 32; // directory entry size
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum ExfatDentry {
     File(ExfatFileDentry),
     Stream(ExfatStreamDentry),
@@ -209,7 +210,7 @@ impl ExfatDentrySet {
             }
         };
 
-        let name = ExfatName::from_str(name)?;
+        let name = ExfatName::from_str(name, fs.upcase_table())?;
         let mut name_dentries = name.to_dentries();
 
         let dos_time = DosTimestamp::now()?;
@@ -359,23 +360,23 @@ impl ExfatDentrySet {
         self.dentries[Self::ES_IDX_STREAM] = ExfatDentry::Stream(*stream);
     }
 
-    pub(super) fn get_name(&self) -> Result<ExfatName> {
-        let mut name: ExfatName = ExfatName::new();
-        for i in Self::ES_IDX_FIRST_FILENAME..self.dentries.len() {
-            if let ExfatDentry::Name(name_dentry) = self.dentries[i] {
-                for character in name_dentry.unicode_0_14 {
-                    if character == 0 {
-                        break;
-                    } else {
-                        name.push(character)?;
-                    }
+    pub(super) fn get_name(
+        &self,
+        upcase_table: Arc<SpinLock<ExfatUpcaseTable>>,
+    ) -> Result<ExfatName> {
+        let name_dentries: Vec<ExfatNameDentry> = self
+            .dentries
+            .iter()
+            .filter_map(|&dentry| {
+                if let ExfatDentry::Name(name_dentry) = dentry {
+                    Some(name_dentry)
+                } else {
+                    None
                 }
-            } else {
-                //End of name dentry
-                break;
-            }
-        }
-        name.verify()?;
+            })
+            .collect();
+
+        let name = ExfatName::from_name_dentries(&name_dentries, upcase_table)?;
         if name.checksum() != self.get_stream_dentry().name_hash {
             return_errno_with_message!(Errno::EINVAL, "name hash mismatched")
         }
@@ -535,15 +536,15 @@ pub struct ExfatStreamDentry {
     pub(super) size: u64,          // file maximum size (not used in init a inode?)
 }
 
-pub type UnicodeChar = u16;
+pub type UTF16Char = u16;
 
 #[repr(C, packed)]
 #[derive(Clone, Debug, Default, Copy, Pod)]
 // MUST be immediately follow the StreamDentry in the number of NameLength/15 rounded up
 pub struct ExfatNameDentry {
-    pub(super) dentry_type: u8,                                  // 0xC1
-    pub(super) flags: u8,                                        // first two bits must be zero
-    pub(super) unicode_0_14: [UnicodeChar; EXFAT_FILE_NAME_LEN], // 15 (or less) characters of file name
+    pub(super) dentry_type: u8,                                // 0xC1
+    pub(super) flags: u8,                                      // first two bits must be zero
+    pub(super) unicode_0_14: [UTF16Char; EXFAT_FILE_NAME_LEN], // 15 (or less) characters of file name
 }
 
 #[repr(C, packed)]
@@ -617,19 +618,39 @@ pub struct ExfatDeletedDentry {
 }
 
 #[derive(Default, Debug)]
-pub struct ExfatName(Vec<UnicodeChar>);
+pub struct ExfatName(Vec<UTF16Char>);
 
 impl ExfatName {
-    pub(super) fn push(&mut self, value: UnicodeChar) -> Result<()> {
+    pub fn from_name_dentries(
+        names: &[ExfatNameDentry],
+        upcase_table: Arc<SpinLock<ExfatUpcaseTable>>,
+    ) -> Result<Self> {
+        let mut exfat_name = ExfatName::new();
+        for name in names {
+            for value in name.unicode_0_14 {
+                if value == 0 {
+                    return Ok(exfat_name);
+                }
+                exfat_name.push_char(value, upcase_table.clone())?;
+            }
+        }
+        Ok(exfat_name)
+    }
+
+    fn push_char(
+        &mut self,
+        value: UTF16Char,
+        upcase_table: Arc<SpinLock<ExfatUpcaseTable>>,
+    ) -> Result<()> {
         if !Self::is_valid_char(value) {
             return_errno_with_message!(Errno::EINVAL, "not a valid char")
         }
-        //TODO: should use upcase table.
-        self.0.push(value);
+        self.0
+            .push(upcase_table.lock().transform_char_to_upcase(value)?);
         Ok(())
     }
 
-    fn is_valid_char(value: UnicodeChar) -> bool {
+    fn is_valid_char(value: UTF16Char) -> bool {
         match value {
             0..0x20 => false, //Control Code
             0x22 => false,    //Quotation Mark
@@ -659,9 +680,9 @@ impl ExfatName {
         calc_checksum_16(&bytes, EMPTY_RANGE, 0)
     }
 
-    pub fn from_str(name: &str) -> Result<Self> {
-        //TODO: should use upcase table.
-        let name = ExfatName(name.encode_utf16().collect());
+    pub fn from_str(name: &str, upcase_table: Arc<SpinLock<ExfatUpcaseTable>>) -> Result<Self> {
+        let mut name = ExfatName(name.encode_utf16().collect());
+        upcase_table.lock().transform_to_upcase(&mut name.0)?;
         name.verify()?;
         Ok(name)
     }
@@ -703,5 +724,11 @@ impl ExfatName {
 impl ToString for ExfatName {
     fn to_string(&self) -> String {
         String::from_utf16_lossy(&self.0)
+    }
+}
+
+impl Clone for ExfatName {
+    fn clone(&self) -> Self {
+        ExfatName(self.0.clone())
     }
 }

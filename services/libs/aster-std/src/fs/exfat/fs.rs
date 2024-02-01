@@ -133,7 +133,6 @@ impl ExfatFS {
     }
 
     pub(super) fn evict_inode(&self, hash: usize) -> Result<()> {
-        error!("evict inode called");
         if let Some(inode) = self.inodes.read().get(&hash).cloned() {
             if inode.is_deleted() {
                 inode.reclaim_space()?;
@@ -310,6 +309,10 @@ impl ExfatFS {
         self.bitmap.clone()
     }
 
+    pub fn upcase_table(&self) -> Arc<SpinLock<ExfatUpcaseTable>> {
+        self.upcase_table.clone()
+    }
+
     pub fn root_inode(&self) -> Arc<ExfatInode> {
         self.inodes.read().get(&ROOT_INODE_HASH).unwrap().clone()
     }
@@ -330,7 +333,7 @@ impl ExfatFS {
         self.super_block.cluster_size as usize
     }
 
-    pub fn free_clusters(&self) -> u32 {
+    pub fn num_free_clusters(&self) -> u32 {
         self.bitmap.lock().num_free_clusters()
     }
 

@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MPL-2.0
 
 use super::{Inode, InodeMode, InodeType};
-use crate::device::Random;
 use crate::prelude::*;
 use alloc::sync::Arc;
 use hashbrown::HashMap;
+use rand::{Rng, RngCore};
 
 pub struct FileInMemory {
     pub name: String,
@@ -314,7 +314,7 @@ impl DirInMemory {
 }
 
 impl FileInMemory {
-    pub fn execute_and_test(&mut self, op: Operation) {
+    pub fn execute_and_test(&mut self, op: Operation, rng: &mut dyn RngCore) {
         match op {
             Operation::Read(offset, len) => {
                 info!(
@@ -358,8 +358,8 @@ impl FileInMemory {
                 );
 
                 let mut buf = vec![0; write_len];
+                rng.fill_bytes(&mut buf);
 
-                let _ = Random::getrandom(&mut buf);
                 let write_result = self.inode.write_at(write_start_offset, &buf);
                 assert!(
                     write_result.is_ok(),
@@ -399,13 +399,13 @@ impl FileInMemory {
 }
 
 impl DentryInMemory {
-    pub fn execute_and_test(&mut self, op: Operation) {
+    pub fn execute_and_test(&mut self, op: Operation, rng: &mut dyn RngCore) {
         match self {
             DentryInMemory::Dir(dir) => {
                 dir.execute_and_test(op);
             }
             DentryInMemory::File(file) => {
-                file.execute_and_test(op);
+                file.execute_and_test(op, rng);
             }
         }
     }
@@ -418,37 +418,31 @@ impl DentryInMemory {
     }
 }
 
-// generate a random number in range [0, max]
-fn get_random_in(max: usize) -> usize {
-    const MAX_RANDOM: usize = 0xFF;
-    let mut random: [u8; 1] = [0];
-    let _ = Random::getrandom(&mut random);
-    let rand = random[0] as usize;
-    (rand * (max + 1) / MAX_RANDOM).min(max)
-}
-
-fn random_select_from_dir_tree(root: &mut DentryInMemory) -> &mut DentryInMemory {
+fn random_select_from_dir_tree<'a, 'b>(
+    root: &'a mut DentryInMemory,
+    rng: &'b mut dyn RngCore,
+) -> &'a mut DentryInMemory {
     let sub_cnt = root.sub_cnt();
     if sub_cnt == 0 {
         root
     } else {
-        let stop_get_deeper = get_random_in(1) > 0;
+        let stop_get_deeper = rng.gen_bool(0.5);
         if stop_get_deeper {
             root
         } else if let DentryInMemory::Dir(dir) = root {
-            let sub_idx = get_random_in(sub_cnt - 1);
+            let sub_idx = rng.gen_range(0..sub_cnt);
             let sub = dir.sub_dirs.get_mut(&dir.sub_names[sub_idx]);
             let sub_dir = sub.unwrap();
-            return random_select_from_dir_tree(sub_dir);
+            return random_select_from_dir_tree(sub_dir, rng);
         } else {
             unreachable!();
         }
     }
 }
 
-fn generate_random_offset_len(max_size: usize) -> (usize, usize) {
-    let offset = get_random_in(max_size - 1);
-    let len = get_random_in(max_size - offset);
+fn generate_random_offset_len(max_size: usize, rng: &mut dyn RngCore) -> (usize, usize) {
+    let offset = rng.gen_range(0..max_size);
+    let len = rng.gen_range(0..max_size - offset);
     (offset, len)
 }
 
@@ -461,11 +455,11 @@ pub fn new_fs_in_memory(root: Arc<dyn Inode>) -> DentryInMemory {
         sub_dirs: HashMap::new(),
     })
 }
-
-pub fn generate_random_operation(
-    root: &mut DentryInMemory,
+pub fn generate_random_operation<'a, 'b>(
+    root: &'a mut DentryInMemory,
     idx: u32,
-) -> (&mut DentryInMemory, Operation) {
+    rng: &'b mut dyn RngCore,
+) -> (&'a mut DentryInMemory, Operation) {
     const CREATE_FILE_ID: usize = 0;
     const CREATE_DIR_ID: usize = 1;
     const UNLINK_ID: usize = 2;
@@ -479,34 +473,35 @@ pub fn generate_random_operation(
     const RESIZE_ID: usize = 2;
     const FILE_OP_NUM: usize = 3;
     const MAX_PAGE_PER_FILE: usize = 10;
-    let dentry = random_select_from_dir_tree(root);
+
+    let dentry = random_select_from_dir_tree(root, rng);
     match dentry {
         DentryInMemory::Dir(dir) => {
-            let op_id = get_random_in(DIR_OP_NUM - 1);
+            let op_id = rng.gen_range(0..DIR_OP_NUM);
             if op_id == CREATE_FILE_ID {
                 (dentry, Operation::Create(idx.to_string(), InodeType::File))
             } else if op_id == CREATE_DIR_ID {
                 return (dentry, Operation::Create(idx.to_string(), InodeType::Dir));
             } else if op_id == UNLINK_ID && !dir.sub_names.is_empty() {
-                let rand_idx = get_random_in(dir.sub_names.len() - 1);
+                let rand_idx = rng.gen_range(0..dir.sub_names.len());
                 let name = dir.sub_names[rand_idx].clone();
                 return (dentry, Operation::Unlink(name));
             } else if op_id == RMDIR_ID && !dir.sub_names.is_empty() {
-                let rand_idx = get_random_in(dir.sub_names.len() - 1);
+                let rand_idx = rng.gen_range(0..dir.sub_names.len());
                 let name = dir.sub_names[rand_idx].clone();
                 return (dentry, Operation::Rmdir(name));
             } else if op_id == LOOKUP_ID && !dir.sub_names.is_empty() {
-                let rand_idx = get_random_in(dir.sub_names.len() - 1);
+                let rand_idx = rng.gen_range(0..dir.sub_names.len());
                 let name = dir.sub_names[rand_idx].clone();
                 return (dentry, Operation::Lookup(name));
             } else if op_id == READDIR_ID {
                 return (dentry, Operation::Readdir());
             } else if op_id == RENAME_ID && !dir.sub_names.is_empty() {
-                let rand_old_idx = get_random_in(dir.sub_names.len() - 1);
+                let rand_old_idx = rng.gen_range(0..dir.sub_names.len());
                 let old_name = dir.sub_names[rand_old_idx].clone();
-                let rename_to_an_exist = get_random_in(1) > 0;
+                let rename_to_an_exist = rng.gen_bool(0.5);
                 if rename_to_an_exist {
-                    let rand_new_idx = get_random_in(dir.sub_names.len() - 1);
+                    let rand_new_idx = rng.gen_range(0..dir.sub_names.len());
                     let new_name = dir.sub_names[rand_new_idx].clone();
                     return (dentry, Operation::Rename(old_name, new_name));
                 } else {
@@ -517,15 +512,15 @@ pub fn generate_random_operation(
             }
         }
         DentryInMemory::File(file) => {
-            let op_id = get_random_in(FILE_OP_NUM - 1);
+            let op_id = rng.gen_range(0..FILE_OP_NUM);
             if op_id == READ_ID {
-                let (offset, len) = generate_random_offset_len(MAX_PAGE_PER_FILE * PAGE_SIZE);
+                let (offset, len) = generate_random_offset_len(MAX_PAGE_PER_FILE * PAGE_SIZE, rng);
                 (dentry, Operation::Read(offset, len))
             } else if op_id == WRITE_ID {
-                let (offset, len) = generate_random_offset_len(MAX_PAGE_PER_FILE * PAGE_SIZE);
+                let (offset, len) = generate_random_offset_len(MAX_PAGE_PER_FILE * PAGE_SIZE, rng);
                 return (dentry, Operation::Write(offset, len));
             } else if op_id == RESIZE_ID {
-                let pg_num = get_random_in(MAX_PAGE_PER_FILE);
+                let pg_num = rng.gen_range(0..=MAX_PAGE_PER_FILE);
                 let new_size = (pg_num * PAGE_SIZE).max(file.contents.len());
                 return (dentry, Operation::Resize(new_size));
             } else {

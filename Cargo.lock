@@ -291,6 +291,7 @@ dependencies = [
  "log",
  "lru",
  "pod",
+ "rand",
  "ringbuf",
  "smoltcp",
  "spin 0.9.8",
