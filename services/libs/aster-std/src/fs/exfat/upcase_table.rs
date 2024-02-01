@@ -80,18 +80,23 @@ impl ExfatUpcaseTable {
         Ok(res)
     }
 
-    pub(super) fn transform_to_upcase(&self, buf: &mut [UTF16Char]) -> Result<()> {
+    pub(super) fn str_to_upcase(&self, value: &str) -> Result<String> {
+        //TODO: use upcase table
+        Ok(value.to_uppercase())
+    }
+
+    pub(super) fn slice_to_upcase(&self, buf: &mut [UTF16Char]) -> Result<()> {
         for value in buf {
-            *value = self.transform_char_to_upcase(*value)?;
+            *value = self.char_to_upcase(*value)?;
         }
         Ok(())
     }
 
-    pub(super) fn transform_char_to_upcase(&self, value: UTF16Char) -> Result<UTF16Char> {
+    pub(super) fn char_to_upcase(&self, value: UTF16Char) -> Result<UTF16Char> {
         if (value as usize) < UPCASE_MANDATORY_SIZE {
             return Ok(self.upcase_table[value as usize]);
         } else {
-            return_errno!(Errno::EINVAL);
+            return Ok(value);
         }
     }
 }

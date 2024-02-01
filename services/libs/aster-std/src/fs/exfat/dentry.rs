@@ -645,8 +645,8 @@ impl ExfatName {
         if !Self::is_valid_char(value) {
             return_errno_with_message!(Errno::EINVAL, "not a valid char")
         }
-        self.0
-            .push(upcase_table.lock().transform_char_to_upcase(value)?);
+        self.0.push(value);
+        //self.0.push(upcase_table.lock().transform_char_to_upcase(value)?);
         Ok(())
     }
 
@@ -681,8 +681,8 @@ impl ExfatName {
     }
 
     pub fn from_str(name: &str, upcase_table: Arc<SpinLock<ExfatUpcaseTable>>) -> Result<Self> {
-        let mut name = ExfatName(name.encode_utf16().collect());
-        upcase_table.lock().transform_to_upcase(&mut name.0)?;
+        let name = ExfatName(name.encode_utf16().collect());
+        //upcase_table.lock().transform_to_upcase(&mut name.0)?;
         name.verify()?;
         Ok(name)
     }

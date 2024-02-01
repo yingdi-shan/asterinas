@@ -541,7 +541,7 @@ impl ExfatInodeInner {
         let impl_ = self.inode_impl.0.read();
         let sub_dir = impl_.num_sub_inodes;
         let mut name_and_offsets: Vec<(String, usize)> = vec![];
-        let target_upcase = (ExfatName::from_str(target_name, fs.upcase_table())?).to_string();
+        let target_upcase = fs.upcase_table().lock().str_to_upcase(target_name)?;
 
         impl DirentVisitor for Vec<(String, usize)> {
             fn visit(
@@ -559,7 +559,8 @@ impl ExfatInodeInner {
         self.read_multiple_dirs(0, sub_dir as usize, &mut name_and_offsets)?;
 
         for (name, offset) in name_and_offsets {
-            if name.eq(&target_upcase) {
+            let name_upcase = fs.upcase_table().lock().str_to_upcase(&name)?;
+            if name_upcase.eq(&target_upcase) {
                 let chain_off = impl_.start_chain.walk_to_cluster_at_offset(offset)?;
                 let hash = make_hash_index(chain_off.0.cluster_id(), chain_off.1 as u32);
                 let inode = fs.find_opened_inode(hash).unwrap();
@@ -1295,7 +1296,6 @@ impl Inode for ExfatInode {
         let result = inner.add_entry(name, type_, mode)?;
         let _ = fs.insert_inode(result.clone());
 
-        error!("Creating {}", name);
         inner
             .inode_impl
             .0
@@ -1471,8 +1471,6 @@ impl Inode for ExfatInode {
             dentry_position.1 as u32,
         ));
 
-        error!("Removing dir {}", name);
-
         self.0
             .read()
             .inode_impl
@@ -1538,8 +1536,9 @@ impl Inode for ExfatInode {
         }
 
         // rename something to itself, return success directly
-        let up_old_name = (ExfatName::from_str(old_name, fs.upcase_table())?).to_string();
-        let up_new_name = (ExfatName::from_str(new_name, fs.upcase_table())?).to_string();
+        let up_old_name = fs.upcase_table().lock().str_to_upcase(old_name)?;
+        let up_new_name = fs.upcase_table().lock().str_to_upcase(new_name)?;
+
         if self.0.read().inode_impl.0.read().ino == target_.0.read().inode_impl.0.read().ino
             && up_old_name.eq(&up_new_name)
         {
