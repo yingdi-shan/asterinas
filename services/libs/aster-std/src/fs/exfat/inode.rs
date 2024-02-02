@@ -536,12 +536,20 @@ impl ExfatInodeInner {
     /// Look up a target with "name", cur inode represent a dir
     /// Return (target inode, dentries start offset, dentries len)
     /// No inode should hold the write lock.
-    fn lookup_by_name(&self, target_name: &str) -> Result<(Arc<ExfatInode>, usize, usize)> {
+    fn lookup_by_name(
+        &self,
+        target_name: &str,
+        case_sensitive: bool,
+    ) -> Result<(Arc<ExfatInode>, usize, usize)> {
         let fs = self.fs();
         let impl_ = self.inode_impl.0.read();
         let sub_dir = impl_.num_sub_inodes;
         let mut name_and_offsets: Vec<(String, usize)> = vec![];
-        let target_upcase = fs.upcase_table().lock().str_to_upcase(target_name)?;
+        let target_upcase = if !case_sensitive {
+            fs.upcase_table().lock().str_to_upcase(target_name)?
+        } else {
+            target_name.to_string()
+        };
 
         impl DirentVisitor for Vec<(String, usize)> {
             fn visit(
@@ -559,7 +567,12 @@ impl ExfatInodeInner {
         self.read_multiple_dirs(0, sub_dir as usize, &mut name_and_offsets)?;
 
         for (name, offset) in name_and_offsets {
-            let name_upcase = fs.upcase_table().lock().str_to_upcase(&name)?;
+            let name_upcase = if !case_sensitive {
+                fs.upcase_table().lock().str_to_upcase(&name)?
+            } else {
+                name
+            };
+
             if name_upcase.eq(&target_upcase) {
                 let chain_off = impl_.start_chain.walk_to_cluster_at_offset(offset)?;
                 let hash = make_hash_index(chain_off.0.cluster_id(), chain_off.1 as u32);
@@ -1253,7 +1266,7 @@ impl Inode for ExfatInode {
 
             inner.inode_impl.0.write().size = end_offset;
 
-            // Sync this inode since size has changed.
+            //Sync this inode since size has changed.
             inner.write_inode(true)?;
         }
 
@@ -1290,7 +1303,7 @@ impl Inode for ExfatInode {
         let fs = inner.fs();
         let guard = fs.lock();
 
-        if inner.lookup_by_name(name).is_ok() {
+        if inner.lookup_by_name(name, false).is_ok() {
             return_errno!(Errno::EEXIST)
         }
         let result = inner.add_entry(name, type_, mode)?;
@@ -1386,7 +1399,7 @@ impl Inode for ExfatInode {
         let fs = self.0.read().fs();
         let guard = fs.lock();
 
-        let (inode, offset, len) = self.0.read().lookup_by_name(name)?;
+        let (inode, offset, len) = self.0.read().lookup_by_name(name, true)?;
         if inode.type_() != InodeType::File {
             return_errno!(Errno::EISDIR)
         }
@@ -1442,7 +1455,7 @@ impl Inode for ExfatInode {
         let fs = self.0.read().fs();
         let guard = fs.lock();
 
-        let (inode, offset, len) = self.0.read().lookup_by_name(name)?;
+        let (inode, offset, len) = self.0.read().lookup_by_name(name, true)?;
         if inode.type_() != InodeType::Dir {
             return_errno!(Errno::ENOTDIR)
         } else if !inode.0.read().inode_impl.0.read().is_empty_dir()? {
@@ -1499,7 +1512,7 @@ impl Inode for ExfatInode {
         let fs = inner.fs();
         let guard = fs.lock();
 
-        let (inode, _, _) = inner.lookup_by_name(name)?;
+        let (inode, _, _) = inner.lookup_by_name(name, true)?;
 
         inner.inode_impl.0.write().set_atime(DosTimestamp::now()?);
         Ok(inode)
@@ -1546,10 +1559,11 @@ impl Inode for ExfatInode {
             return Ok(());
         }
 
-        // read 'old_name' file or dir and its dentries
-        let (old_inode, old_offset, old_len) = self.0.read().lookup_by_name(old_name)?;
+        // read 'old_name' file or dir and its dentries.
+        let (old_inode, old_offset, old_len) = self.0.read().lookup_by_name(old_name, true)?;
 
-        let lookup_exist_result = target_.0.read().lookup_by_name(new_name);
+        //FIXME: Users may be confused, since inode with the same upper case name will be removed.
+        let lookup_exist_result = target_.0.read().lookup_by_name(new_name, false);
         if let Ok((ref exist_inode, exist_offset, exist_len)) = lookup_exist_result {
             // check for two corner cases here
             // if 'old_name' represents a directory, the exist 'new_name' must represents a empty directory.
