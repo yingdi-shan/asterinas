@@ -176,9 +176,15 @@ fn main() {
 
     // TODO: Add arguments to the runner CLI tool so that the user can specify
     //       a list of disk drives, each of which may be in a different FS format.
-    let ext2_image = get_fs_image(&PathBuf::from("regression/build/ext2.img"), 0);
+    let ext2_drive_id = 0;
+    let ext2_image = get_fs_image(&PathBuf::from("regression/build/ext2.img"), ext2_drive_id);
     qemu_cmd.arg("-drive");
     qemu_cmd.arg(ext2_image);
+
+    let exfat_drive_id = 1;
+    let exfat_image = get_fs_image(&PathBuf::from("regression/build/exfat.img"), exfat_drive_id);
+    qemu_cmd.arg("-drive");
+    qemu_cmd.arg(exfat_image);
 
     if args.boot_method == BootMethod::Microvm {
         let image = microvm::create_bootdev_image(args.path);

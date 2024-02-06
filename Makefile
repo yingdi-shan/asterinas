@@ -15,17 +15,21 @@ KTEST_CRATES ?= all
 KTEST_WHITELIST ?=
 SKIP_GRUB_MENU ?= 1
 SYSCALL_TEST_DIR ?= /tmp
+SYSCALL_TEST_EXFAT ?= 0
 RELEASE_MODE ?= 0
 # End of setting up Make varaiables
 
 KERNEL_CMDLINE := SHELL="/bin/sh" LOGNAME="root" HOME="/" USER="root" PATH="/bin:/benchmark" init=/usr/bin/busybox
 KERNEL_CMDLINE += ktest.whitelist="$(KTEST_WHITELIST)"
 INIT_CMDLINE := sh -l
+
 ifeq ($(AUTO_TEST), syscall)
 BUILD_SYSCALL_TEST := 1
 KERNEL_CMDLINE += SYSCALL_TEST_DIR=$(SYSCALL_TEST_DIR)
+KERNEL_CMDLINE += SYSCALL_TEST_EXFAT=$(SYSCALL_TEST_EXFAT)
 INIT_CMDLINE += /opt/syscall_test/run_syscall_test.sh
 endif
+
 ifeq ($(AUTO_TEST), regression)
 INIT_CMDLINE += /regression/run_regression_test.sh
 endif
@@ -138,7 +142,7 @@ clean:
 	@cargo clean
 	@cd docs && mdbook clean
 	@make --no-print-directory -C regression clean
-
+	
 update_initramfs:
 	@make --no-print-directory -C regression clean
 	@make --no-print-directory -C regression

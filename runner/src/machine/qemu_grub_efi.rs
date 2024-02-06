@@ -40,6 +40,8 @@ pub const NOIOMMU_DEVICE_ARGS: &[&str] = &[
     "-device",
     "virtio-blk-pci,bus=pcie.0,addr=0x6,drive=x0,disable-legacy=on,disable-modern=off",
     "-device",
+    "virtio-blk-pci,bus=pcie.0,addr=0x7,drive=x1,disable-legacy=on,disable-modern=off",
+    "-device",
     "virtio-keyboard-pci,disable-legacy=on,disable-modern=off",
     "-device",
     "virtio-net-pci,netdev=net01,disable-legacy=on,disable-modern=off",

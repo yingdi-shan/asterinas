@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: MPL-2.0
 
-use alloc::{boxed::Box, sync::Arc};
+use alloc::{
+    boxed::Box,
+    string::{String, ToString},
+    sync::Arc,
+};
 use aster_frame::{
     bus::mmio::{
         bus::MmioDevice,
@@ -88,6 +92,10 @@ impl VirtioMmioTransport {
 }
 
 impl VirtioTransport for VirtioMmioTransport {
+    fn get_device_name(&self) -> String {
+        self.common_device.address().to_string()
+    }
+
     fn device_type(&self) -> VirtioDeviceType {
         VirtioDeviceType::try_from(self.common_device.device_id() as u8).unwrap()
     }

@@ -13,7 +13,11 @@ use aster_frame::{
     vm::DmaCoherent,
 };
 
-use alloc::{boxed::Box, sync::Arc};
+use alloc::{
+    boxed::Box,
+    string::{String, ToString},
+    sync::Arc,
+};
 use aster_util::{field_ptr, safe_ptr::SafePtr};
 use core::fmt::Debug;
 use log::{info, warn};
@@ -64,6 +68,10 @@ impl Debug for VirtioPciTransport {
 }
 
 impl VirtioTransport for VirtioPciTransport {
+    fn get_device_name(&self) -> String {
+        self.common_device.location().device.to_string()
+    }
+
     fn device_type(&self) -> VirtioDeviceType {
         self.device_type
     }

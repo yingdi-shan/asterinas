@@ -2,7 +2,7 @@
 
 use core::fmt::Debug;
 
-use alloc::boxed::Box;
+use alloc::{boxed::Box, string::String};
 use aster_frame::{io_mem::IoMem, trap::IrqCallbackFunction, vm::DmaCoherent};
 use aster_util::safe_ptr::SafePtr;
 
@@ -24,6 +24,8 @@ pub mod pci;
 /// 5. Get the interrupt resources allocated to the device.
 pub trait VirtioTransport: Sync + Send + Debug {
     // ====================Device related APIs=======================
+
+    fn get_device_name(&self) -> String;
 
     fn device_type(&self) -> VirtioDeviceType;
 

@@ -6,6 +6,7 @@ SCRIPT_DIR=$(dirname "$0")
 TEST_TMP_DIR=${SYSCALL_TEST_DIR:-/tmp}
 TEST_BIN_DIR=$SCRIPT_DIR/tests
 BLOCKLIST_DIR=$SCRIPT_DIR/blocklists
+EXFAT_BLOCKLIST_DIR=$SCRIPT_DIR/exfat_blocklists
 FAIL_CASES=$SCRIPT_DIR/fail_cases
 BLOCK=""
 TESTS=0
@@ -16,7 +17,10 @@ RED='\033[0;31m'
 NC='\033[0m'
 
 get_blocklist_subtests(){
-    if [ -f $BLOCKLIST_DIR/$1 ]; then
+    if [ $SYSCALL_TEST_EXFAT -eq 1 ]; then
+        BLOCK=$(sed ':a;N;$!ba;s/\n/:/g' $EXFAT_BLOCKLIST_DIR/$1)
+        return 0
+    elif [ -f $BLOCKLIST_DIR/$1 ]; then
         BLOCK=$(sed ':a;N;$!ba;s/\n/:/g' $BLOCKLIST_DIR/$1)
         return 0
     else
