@@ -33,7 +33,7 @@ pub enum ExfatDentry {
 }
 
 impl ExfatDentry {
-    fn to_le_bytes(&self) -> &[u8] {
+    fn as_le_bytes(&self) -> &[u8] {
         match self {
             ExfatDentry::File(file) => file.as_bytes(),
             ExfatDentry::Stream(stream) => stream.as_bytes(),
@@ -304,7 +304,7 @@ impl ExfatDentrySet {
 
         let mut bytes = vec![0; self.dentries.len() * DENTRY_SIZE];
         for (i, dentry) in self.dentries.iter().enumerate() {
-            let dentry_bytes = dentry.to_le_bytes();
+            let dentry_bytes = dentry.as_le_bytes();
             let (_, to_write) = bytes.split_at_mut(i * DENTRY_SIZE);
             to_write[..DENTRY_SIZE].copy_from_slice(dentry_bytes)
         }
@@ -389,14 +389,14 @@ impl ExfatDentrySet {
         const EMPTY_RANGE: Range<usize> = 0..0;
 
         let mut checksum = calc_checksum_16(
-            self.dentries[Self::ES_IDX_FILE].to_le_bytes(),
+            self.dentries[Self::ES_IDX_FILE].as_le_bytes(),
             CHECKSUM_BYTES_RANGE,
             0,
         );
 
         for i in 1..self.dentries.len() {
             let dentry = &self.dentries[i];
-            checksum = calc_checksum_16(dentry.to_le_bytes(), EMPTY_RANGE, checksum);
+            checksum = calc_checksum_16(dentry.as_le_bytes(), EMPTY_RANGE, checksum);
         }
         checksum
     }
@@ -418,11 +418,11 @@ impl Checksum for ExfatDentrySet {
 }
 
 pub struct ExfatDentryIterator {
-    ///The dentry position in current inode.
+    /// The dentry position in current inode.
     entry: u32,
-    ///Used to hold cached dentries
+    /// The page cache of the iterated inode.
     page_cache: Vmo<Full>,
-    ///Remaining size that can be iterated. If none, iterate through the whole cluster chain.
+    /// Remaining size that can be iterated. If none, iterate through the whole cluster chain.
     size: Option<usize>,
 }
 

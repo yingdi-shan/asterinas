@@ -94,9 +94,9 @@ impl ExfatUpcaseTable {
 
     pub(super) fn char_to_upcase(&self, value: UTF16Char) -> Result<UTF16Char> {
         if (value as usize) < UPCASE_MANDATORY_SIZE {
-            return Ok(self.upcase_table[value as usize]);
+            Ok(self.upcase_table[value as usize])
         } else {
-            return Ok(value);
+            Ok(value)
         }
     }
 }

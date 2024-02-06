@@ -4,7 +4,9 @@ use crate::prelude::*;
 use core::{ops::Range, time::Duration};
 use time::{OffsetDateTime, PrimitiveDateTime, Time};
 
-pub fn make_hash_index(cluster: u32, offset: u32) -> usize {
+use super::fat::ClusterID;
+
+pub fn make_hash_index(cluster: ClusterID, offset: u32) -> usize {
     (cluster as usize) << 32usize | (offset as usize & 0xffffffffusize)
 }
 

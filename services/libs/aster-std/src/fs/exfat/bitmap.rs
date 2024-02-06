@@ -18,14 +18,14 @@ pub(super) const EXFAT_RESERVED_CLUSTERS: u32 = 2;
 const BITS_PER_BYTE: usize = 8;
 
 #[derive(Debug, Default)]
-pub struct ExfatBitmap {
-    /// start cluster of allocation bitmap
+pub(super) struct ExfatBitmap {
+    // start cluster of allocation bitmap
     chain: ExfatChain,
-    // TODO: use jinux_util::bitmap
     bitvec: BitVec<BitStore>,
     dirty_bytes: VecDeque<Range<usize>>,
 
-    free_cluster_num: u32,
+    // Used to track the number of free clusters.
+    num_free_cluster: u32,
     fs: Weak<ExfatFS>,
 }
 
@@ -40,7 +40,7 @@ impl ExfatBitmap {
         for dentry_result in dentry_iterator {
             let dentry = dentry_result?;
             if let ExfatDentry::Bitmap(bitmap_dentry) = dentry {
-                //If the last bit of bitmap is 0, it is a valid bitmap.
+                // If the last bit of bitmap is 0, it is a valid bitmap.
                 if (bitmap_dentry.flags & 0x1) == 0 {
                     return Self::allocate_bitmap(fs, &bitmap_dentry);
                 }
@@ -81,7 +81,7 @@ impl ExfatBitmap {
             chain,
             bitvec: BitVec::from_slice(&buf),
             dirty_bytes: VecDeque::new(),
-            free_cluster_num,
+            num_free_cluster: free_cluster_num,
             fs: fs_weak,
         })
     }
@@ -129,7 +129,7 @@ impl ExfatBitmap {
         Ok(clusters.start)
     }
 
-    //Return the first free cluster chunk, set cluster_num=1 to find a single cluster
+    //Return the first free cluster range, set cluster_num=1 to find a single cluster
     pub fn find_next_free_cluster_range(
         &self,
         search_start_cluster: ClusterID,
@@ -139,7 +139,7 @@ impl ExfatBitmap {
             .fs()
             .is_cluster_range_valid(search_start_cluster..search_start_cluster + cluster_num)
         {
-            return_errno_with_message!(Errno::ENOSPC, "free contigous clusters not avalable")
+            return_errno_with_message!(Errno::ENOSPC, "free contigous clusters not avalable.")
         }
 
         let mut cur_index = search_start_cluster - EXFAT_RESERVED_CLUSTERS;
@@ -289,7 +289,7 @@ impl ExfatBitmap {
     }
 
     pub fn num_free_clusters(&self) -> u32 {
-        self.free_cluster_num
+        self.num_free_cluster
     }
 
     fn set_bitmap_range(
@@ -308,9 +308,9 @@ impl ExfatBitmap {
             self.bitvec.set(index, bit);
 
             if !old_bit && bit {
-                self.free_cluster_num -= 1;
+                self.num_free_cluster -= 1;
             } else if old_bit && !bit {
-                self.free_cluster_num += 1;
+                self.num_free_cluster += 1;
             }
         }
 

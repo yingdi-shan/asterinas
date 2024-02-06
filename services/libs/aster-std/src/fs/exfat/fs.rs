@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 use crate::prelude::*;
-use core::{num::NonZeroUsize, ops::Range, sync::atomic::AtomicUsize};
+use core::{num::NonZeroUsize, ops::Range, sync::atomic::AtomicU64};
 
 use super::{
     bitmap::{ExfatBitmap, EXFAT_RESERVED_CLUSTERS},
@@ -39,7 +39,7 @@ pub struct ExfatFS {
 
     mount_option: ExfatMountOptions,
     //Used for inode allocation.
-    highest_inode_number: AtomicUsize,
+    highest_inode_number: AtomicU64,
 
     //inodes are indexed by their hash_value.
     inodes: RwMutex<HashMap<usize, Arc<ExfatInode>>>,
@@ -70,7 +70,7 @@ impl ExfatFS {
             bitmap: Arc::new(Mutex::new(ExfatBitmap::default())),
             upcase_table: Arc::new(SpinLock::new(ExfatUpcaseTable::empty())),
             mount_option,
-            highest_inode_number: AtomicUsize::new(EXFAT_ROOT_INO + 1),
+            highest_inode_number: AtomicU64::new(EXFAT_ROOT_INO + 1),
             inodes: RwMutex::new(HashMap::new()),
             fat_cache: RwLock::new(LruCache::<ClusterID, ClusterID>::new(
                 NonZeroUsize::new(LRU_CACHE_SIZE).unwrap(),
@@ -119,7 +119,7 @@ impl ExfatFS {
         Ok(exfat_fs)
     }
 
-    pub(super) fn alloc_inode_number(&self) -> usize {
+    pub(super) fn alloc_inode_number(&self) -> Ino {
         self.highest_inode_number
             .fetch_add(1, core::sync::atomic::Ordering::SeqCst)
     }
@@ -163,7 +163,7 @@ impl ExfatFS {
         Ok(())
     }
 
-    pub fn read_next_fat(&self, cluster: ClusterID) -> Result<FatValue> {
+    pub(super) fn read_next_fat(&self, cluster: ClusterID) -> Result<FatValue> {
         {
             let mut cache_inner = self.fat_cache.write();
 
@@ -191,7 +191,12 @@ impl ExfatFS {
         Ok(FatValue::from(value))
     }
 
-    pub fn write_next_fat(&self, cluster: ClusterID, value: FatValue, sync: bool) -> Result<()> {
+    pub(super) fn write_next_fat(
+        &self,
+        cluster: ClusterID,
+        value: FatValue,
+        sync: bool,
+    ) -> Result<()> {
         let sb: ExfatSuperBlock = self.super_block();
         let sector_size = sb.sector_size;
         let raw_value: u32 = value.into();
@@ -297,31 +302,31 @@ impl ExfatFS {
         Ok(())
     }
 
-    pub fn block_device(&self) -> &dyn BlockDevice {
+    pub(super) fn block_device(&self) -> &dyn BlockDevice {
         self.block_device.as_ref()
     }
 
-    pub fn super_block(&self) -> ExfatSuperBlock {
+    pub(super) fn super_block(&self) -> ExfatSuperBlock {
         self.super_block
     }
 
-    pub fn bitmap(&self) -> Arc<Mutex<ExfatBitmap>> {
+    pub(super) fn bitmap(&self) -> Arc<Mutex<ExfatBitmap>> {
         self.bitmap.clone()
     }
 
-    pub fn upcase_table(&self) -> Arc<SpinLock<ExfatUpcaseTable>> {
+    pub(super) fn upcase_table(&self) -> Arc<SpinLock<ExfatUpcaseTable>> {
         self.upcase_table.clone()
     }
 
-    pub fn root_inode(&self) -> Arc<ExfatInode> {
+    pub(super) fn root_inode(&self) -> Arc<ExfatInode> {
         self.inodes.read().get(&ROOT_INODE_HASH).unwrap().clone()
     }
 
-    pub fn sector_size(&self) -> usize {
+    pub(super) fn sector_size(&self) -> usize {
         self.super_block.sector_size as usize
     }
 
-    pub fn fs_size(&self) -> usize {
+    pub(super) fn fs_size(&self) -> usize {
         self.super_block.cluster_size as usize * self.super_block.num_clusters as usize
     }
 
@@ -329,11 +334,11 @@ impl ExfatFS {
         self.mutex.lock()
     }
 
-    pub fn cluster_size(&self) -> usize {
+    pub(super) fn cluster_size(&self) -> usize {
         self.super_block.cluster_size as usize
     }
 
-    pub fn num_free_clusters(&self) -> u32 {
+    pub(super) fn num_free_clusters(&self) -> u32 {
         self.bitmap.lock().num_free_clusters()
     }
 
@@ -387,9 +392,8 @@ impl PageCacheBackend for ExfatFS {
 
 impl FileSystem for ExfatFS {
     fn sync(&self) -> Result<()> {
-        let guard = self.lock();
         for inode in self.inodes.read().values() {
-            inode.sync_inode(&guard)?;
+            inode.sync()?;
         }
         self.meta_cache.evict_range(0..self.fs_size())?;
         Ok(())

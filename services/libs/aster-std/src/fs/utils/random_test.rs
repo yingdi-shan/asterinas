@@ -418,9 +418,9 @@ impl DentryInMemory {
     }
 }
 
-fn random_select_from_dir_tree<'a, 'b>(
+fn random_select_from_dir_tree<'a>(
     root: &'a mut DentryInMemory,
-    rng: &'b mut dyn RngCore,
+    rng: &mut dyn RngCore,
 ) -> &'a mut DentryInMemory {
     let sub_cnt = root.sub_cnt();
     if sub_cnt == 0 {
@@ -455,10 +455,10 @@ pub fn new_fs_in_memory(root: Arc<dyn Inode>) -> DentryInMemory {
         sub_dirs: HashMap::new(),
     })
 }
-pub fn generate_random_operation<'a, 'b>(
+pub fn generate_random_operation<'a>(
     root: &'a mut DentryInMemory,
     idx: u32,
-    rng: &'b mut dyn RngCore,
+    rng: &mut dyn RngCore,
 ) -> (&'a mut DentryInMemory, Operation) {
     const CREATE_FILE_ID: usize = 0;
     const CREATE_DIR_ID: usize = 1;
