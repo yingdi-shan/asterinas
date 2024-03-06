@@ -19,6 +19,7 @@
 #![no_std]
 
 extern crate alloc;
+#[cfg(ktest)]
 #[macro_use]
 extern crate ktest;
 #[macro_use]
@@ -43,11 +44,10 @@ pub mod user;
 mod util;
 pub mod vm;
 
-pub use self::cpu::CpuLocal;
-pub use self::error::Error;
-pub use self::prelude::Result;
 #[cfg(feature = "intel_tdx")]
 use tdx_guest::init_tdx;
+
+pub use self::{cpu::CpuLocal, error::Error, prelude::Result};
 
 pub fn init() {
     arch::before_all_init();
@@ -84,7 +84,7 @@ fn invoke_ffi_init_funcs() {
 }
 
 /// Simple unit tests for the ktest framework.
-#[if_cfg_ktest]
+#[cfg(ktest)]
 mod test {
     #[ktest]
     fn trivial_assertion() {

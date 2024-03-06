@@ -1,0 +1,12 @@
+#![no_std]
+#![forbid(unsafe_code)]
+
+#[macro_use]
+extern crate ktest;
+
+use aster_frame::prelude::*;
+
+#[aster_main]
+fn kernel_main() {
+    println!("Hello world from guest kernel!");
+}

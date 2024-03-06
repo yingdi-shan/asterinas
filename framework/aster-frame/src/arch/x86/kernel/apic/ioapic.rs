@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
 
+use alloc::{vec, vec::Vec};
+
 use acpi::PlatformInfo;
-use alloc::vec;
-use alloc::vec::Vec;
 use bit_field::BitField;
 use log::info;
 use spin::Once;
@@ -157,7 +157,7 @@ pub fn init() {
             let version = io_apic.version();
             let max_redirection_entry = io_apic.max_redirection_entry();
             info!(
-                "[IOAPIC]: Not found ACPI talbes, using default address:{:x?}",
+                "[IOAPIC]: Not found ACPI tables, using default address:{:x?}",
                 IO_APIC_DEFAULT_ADDRESS,
             );
             info!(

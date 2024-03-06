@@ -28,7 +28,7 @@ INITRAMFS_ALL_DIRS := \
 	$(INITRAMFS)/benchmark \
 	$(INITRAMFS_EMPTY_DIRS)
 
-.PHONY: all clean
+.PHONY: all clean 
 
 all: build
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright(c) 2023-2024 Intel Corporation.
 
-#![no_std]
+#![cfg_attr(not(test), no_std)]
 #![allow(dead_code)]
 #![allow(unused_variables)]
 
@@ -11,11 +11,13 @@ mod asm;
 pub mod tdcall;
 pub mod tdvmcall;
 
-pub use self::tdcall::{get_veinfo, TdxVirtualExceptionType};
-pub use self::tdvmcall::print;
-
 use raw_cpuid::{native_cpuid::cpuid_count, CpuIdResult};
 use tdcall::{InitError, TdgVpInfo};
+
+pub use self::{
+    tdcall::{get_veinfo, TdxVirtualExceptionType},
+    tdvmcall::print,
+};
 
 pub fn init_tdx() -> Result<TdgVpInfo, InitError> {
     check_tdx_guest()?;

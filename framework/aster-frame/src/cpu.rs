@@ -2,9 +2,9 @@
 
 //! CPU.
 
+use core::{cell::UnsafeCell, ops::Deref};
+
 use crate::trap::disable_local;
-use core::cell::UnsafeCell;
-use core::ops::Deref;
 
 cfg_if::cfg_if! {
     if #[cfg(target_arch = "x86_64")]{
@@ -39,14 +39,14 @@ macro_rules! cpu_local {
 
     // multiple declarations
     ($(#[$attr:meta])* $vis:vis static $name:ident: $t:ty = $init:expr; $($rest:tt)*) => {
-        $(#[$attr])* $vis static $name: CpuLocal<$t> = unsafe { CpuLocal::new($init) };
+        $(#[$attr])* $vis static $name: $crate::CpuLocal<$t> = unsafe { $crate::CpuLocal::new($init) };
         $crate::cpu_local!($($rest)*);
     };
 
     // single declaration
     ($(#[$attr:meta])* $vis:vis static $name:ident: $t:ty = $init:expr) => (
         // TODO: reimplement cpu-local variable to support multi-core
-        $(#[$attr])* $vis static $name: CpuLocal<$t> = CpuLocal::new($init);
+        $(#[$attr])* $vis static $name: $crate::CpuLocal<$t> = $crate::CpuLocal::new($init);
     );
 }
 

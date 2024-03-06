@@ -2,14 +2,14 @@
 
 //! Timer.
 
-#[cfg(target_arch = "x86_64")]
-use crate::arch::x86::timer::{add_timeout_list, TimerCallback, TICK};
-use crate::sync::SpinLock;
-use crate::{config::TIMER_FREQ, prelude::*};
 use core::{sync::atomic::Ordering, time::Duration};
 
-#[cfg(target_arch = "x86_64")]
-pub use crate::arch::x86::timer::read_monotonic_milli_seconds;
+pub use crate::arch::timer::read_monotonic_milli_seconds;
+use crate::{
+    arch::timer::{add_timeout_list, TimerCallback, TICK, TIMER_FREQ},
+    prelude::*,
+    sync::SpinLock,
+};
 
 /// A timer invokes a callback function after a specified span of time elapsed.
 ///

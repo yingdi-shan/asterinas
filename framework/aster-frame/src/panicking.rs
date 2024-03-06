@@ -5,14 +5,16 @@
 use alloc::{boxed::Box, string::ToString};
 use core::ffi::c_void;
 
-use crate::arch::qemu::{exit_qemu, QemuExitCode};
-use crate::{early_print, early_println};
 use log::error;
+
+use crate::{
+    arch::qemu::{exit_qemu, QemuExitCode},
+    early_print, early_println,
+};
 
 extern crate cfg_if;
 extern crate gimli;
 use gimli::Register;
-
 use unwinding::{
     abi::{
         UnwindContext, UnwindReasonCode, _Unwind_Backtrace, _Unwind_FindEnclosingFunction,
@@ -21,12 +23,12 @@ use unwinding::{
     panic::begin_panic,
 };
 
-fn abort() -> ! {
-    exit_qemu(QemuExitCode::Failed);
-}
-
-#[panic_handler]
-fn panic_handler(info: &core::panic::PanicInfo) -> ! {
+/// The panic handler must be defined in the binary crate or in the crate that the binary
+/// crate explicity declares by `extern crate`. We cannot let the base crate depend on the
+/// framework due to prismatic dependencies. That's why we export this symbol and state the
+/// panic handler in the binary crate.
+#[export_name = "__aster_panic_handler"]
+pub fn panic_handler(info: &core::panic::PanicInfo) -> ! {
     let throw_info = ktest::PanicInfo {
         message: info.message().unwrap().to_string(),
         file: info.location().unwrap().file().to_string(),
@@ -42,6 +44,11 @@ fn panic_handler(info: &core::panic::PanicInfo) -> ! {
     early_println!("printing stack trace:");
     print_stack_trace();
     abort();
+}
+
+// Aborts the QEMU
+pub fn abort() -> ! {
+    exit_qemu(QemuExitCode::Failed);
 }
 
 fn print_stack_trace() {

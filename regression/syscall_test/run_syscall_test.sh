@@ -35,10 +35,11 @@ run_one_test(){
     export TEST_TMPDIR=$TEST_TMP_DIR
     ret=0
     if [ -f $TEST_BIN_DIR/$1 ]; then
-        rm -rf $TEST_TMP_DIR/*
         get_blocklist_subtests $1
         $TEST_BIN_DIR/$1 --gtest_filter=-$BLOCK
         ret=$?
+        #After executing the test, it is necessary to clean the directory to ensure no residual data remains
+        rm -rf $TEST_TMP_DIR/*
     else
         echo -e "Warning: $1 test does not exit"
         ret=1
@@ -48,6 +49,7 @@ run_one_test(){
 }
 
 rm -f $FAIL_CASES && touch $FAIL_CASES
+rm -rf $TEST_TMP_DIR/*
 
 for syscall_test in $(find $TEST_BIN_DIR/. -name \*_test) ; do
     test_name=$(basename "$syscall_test")
