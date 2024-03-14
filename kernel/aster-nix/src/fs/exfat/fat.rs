@@ -3,8 +3,8 @@
 use core::mem::size_of;
 
 use super::{
-    bitmap::{ExfatBitmap, EXFAT_RESERVED_CLUSTERS},
-    constants::EXFAT_FIRST_CLUSTER,
+    bitmap::ExfatBitmap,
+    constants::{EXFAT_FIRST_CLUSTER, EXFAT_RESERVED_CLUSTERS},
     fs::ExfatFS,
 };
 use crate::prelude::*;
@@ -207,10 +207,10 @@ impl ExfatChain {
     ) -> Result<ClusterID> {
         // search for a continuous chunk big enough
         let search_result =
-            bitmap.find_next_free_cluster_range_fast(EXFAT_FIRST_CLUSTER, num_to_be_allocated);
+            bitmap.find_next_unused_cluster_range(EXFAT_FIRST_CLUSTER, num_to_be_allocated);
 
         if let Ok(clusters) = search_result {
-            bitmap.set_bitmap_range_used(clusters.clone(), sync_bitmap)?;
+            bitmap.set_range_used(clusters.clone(), sync_bitmap)?;
             self.current = clusters.start;
             self.flags = FatChainFlags::FAT_CHAIN_NOT_IN_USE;
             Ok(clusters.start)
@@ -235,8 +235,8 @@ impl ExfatChain {
         let mut prev_cluster = 0;
         let mut cur_cluster = EXFAT_FIRST_CLUSTER;
         for i in 0..num_to_be_allocated {
-            cur_cluster = bitmap.find_next_free_cluster(cur_cluster)?;
-            bitmap.set_bitmap_used(cur_cluster, sync)?;
+            cur_cluster = bitmap.find_next_unused_cluster(cur_cluster)?;
+            bitmap.set_used(cur_cluster, sync)?;
 
             if i == 0 {
                 alloc_start_cluster = cur_cluster;
@@ -261,7 +261,7 @@ impl ExfatChain {
 
         let mut cur_cluster = start_physical_cluster;
         for i in 0..drop_num {
-            bitmap.set_bitmap_unused(cur_cluster, sync_bitmap)?;
+            bitmap.set_unused(cur_cluster, sync_bitmap)?;
             match fs.read_next_fat(cur_cluster)? {
                 FatValue::Next(data) => {
                     cur_cluster = data;
@@ -317,9 +317,9 @@ impl ClusterAllocator for ExfatChain {
             // if not, we can give up continuous allocation and turn to fat allocation
             let current_end = start_cluster + num_clusters;
             let clusters = current_end..current_end + num_to_be_allocated;
-            if bitmap.is_cluster_range_free(clusters.clone())? {
+            if bitmap.is_cluster_range_unused(clusters.clone())? {
                 // Considering that the following clusters may be out of range, we should deal with this error here(just turn to fat allocation)
-                bitmap.set_bitmap_range_used(clusters, sync)?;
+                bitmap.set_range_used(clusters, sync)?;
                 self.num_clusters += num_to_be_allocated;
                 return Ok(start_cluster);
             } else {
@@ -363,10 +363,7 @@ impl ClusterAllocator for ExfatChain {
         let mut bitmap = bitmap_binding.lock();
 
         if !self.fat_in_use() {
-            bitmap.set_bitmap_range_unused(
-                trunc_start_cluster..trunc_start_cluster + drop_num,
-                sync,
-            )?;
+            bitmap.set_range_unused(trunc_start_cluster..trunc_start_cluster + drop_num, sync)?;
         } else {
             self.remove_cluster_fat(trunc_start_cluster, drop_num, sync, &mut bitmap)?;
             if drop_num != num_clusters {

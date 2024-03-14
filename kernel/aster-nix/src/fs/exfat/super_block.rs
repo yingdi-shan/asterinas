@@ -2,10 +2,7 @@
 
 use pod::Pod;
 
-use super::{
-    bitmap::EXFAT_RESERVED_CLUSTERS,
-    constants::{EXFAT_CLUSTERS_UNTRACKED, EXFAT_FIRST_CLUSTER, MEDIA_FAILURE, VOLUME_DIRTY},
-};
+use super::constants::{EXFAT_FIRST_CLUSTER, EXFAT_RESERVED_CLUSTERS, MEDIA_FAILURE, VOLUME_DIRTY};
 use crate::prelude::*;
 
 #[repr(C, packed)]
@@ -51,6 +48,7 @@ const DENTRY_SIZE_BITS: u32 = 5;
 impl TryFrom<ExfatBootSector> for ExfatSuperBlock {
     type Error = crate::error::Error;
     fn try_from(sector: ExfatBootSector) -> Result<ExfatSuperBlock> {
+        const EXFAT_CLUSTERS_UNTRACKED: u32 = !0;
         let mut block = ExfatSuperBlock {
             sect_per_cluster_bits: sector.sector_per_cluster_bits as u32,
             sect_per_cluster: 1 << sector.sector_per_cluster_bits as u32,
@@ -73,6 +71,7 @@ impl TryFrom<ExfatBootSector> for ExfatSuperBlock {
             vol_flags_persistent: (sector.vol_flags & (VOLUME_DIRTY | MEDIA_FAILURE)) as u32,
 
             cluster_search_ptr: EXFAT_FIRST_CLUSTER,
+
             used_clusters: EXFAT_CLUSTERS_UNTRACKED,
 
             dentries_per_clu: 1

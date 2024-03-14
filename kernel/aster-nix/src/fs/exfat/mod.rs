@@ -27,8 +27,8 @@ mod test {
     use crate::{
         fs::{
             exfat::{
-                bitmap::EXFAT_RESERVED_CLUSTERS, constants::MAX_NAME_LENGTH, ExfatFS,
-                ExfatMountOptions,
+                constants::{EXFAT_RESERVED_CLUSTERS, MAX_NAME_LENGTH},
+                ExfatFS, ExfatMountOptions,
             },
             utils::{generate_random_operation, new_fs_in_memory, Inode, InodeMode, InodeType},
         },
@@ -568,6 +568,7 @@ mod test {
         // Test rename a folder, the sub-directories should remain.
         let new_folder_name = "NEW_FOLDER";
         let rename_result = root.rename(old_folder_name, &root.clone(), new_folder_name);
+
         assert!(
             rename_result.is_ok(),
             "Fs failed to rename a folder: {:?}",
@@ -594,6 +595,7 @@ mod test {
 
         let rename_dir_to_an_exist_file =
             root.rename(new_folder_name, &root.clone(), exist_file_name);
+
         assert!(rename_dir_to_an_exist_file.is_err());
 
         let rename_dir_to_an_exist_no_empty_folder =
@@ -601,6 +603,7 @@ mod test {
         assert!(rename_dir_to_an_exist_no_empty_folder.is_err());
 
         let _ = exist_folder.unlink(child_file_name);
+
         let rename_dir_to_an_exist_empty_folder =
             root.rename(new_folder_name, &root.clone(), exist_folder_name);
         assert!(rename_dir_to_an_exist_empty_folder.is_ok());
@@ -726,7 +729,7 @@ mod test {
         let initial_free_clusters = bitmap.num_free_clusters();
 
         let range_result =
-            bitmap.find_next_free_cluster_range(EXFAT_RESERVED_CLUSTERS, total_bits_len);
+            bitmap.find_next_unused_cluster_range(EXFAT_RESERVED_CLUSTERS, total_bits_len);
         assert!(
             range_result.is_ok(),
             "Fail to get a free range with {:?} clusters",
@@ -738,35 +741,35 @@ mod test {
         for i in 0..total_bits_len {
             let relative_idx = (i * p) % total_bits_len;
             let idx = range_start_cluster + relative_idx;
-            let res1 = bitmap.is_cluster_free(idx);
+            let res1 = bitmap.is_cluster_unused(idx);
             assert!(
                 res1.is_ok() && res1.unwrap(),
                 "Cluster idx {:?} is set before set",
                 relative_idx
             );
 
-            let res2 = bitmap.set_bitmap_used(idx, true);
+            let res2 = bitmap.set_used(idx, true);
             assert!(
                 res2.is_ok() && bitmap.num_free_clusters() == initial_free_clusters - 1,
                 "Set cluster idx {:?} failed",
                 relative_idx
             );
 
-            let res3 = bitmap.is_cluster_free(idx);
+            let res3 = bitmap.is_cluster_unused(idx);
             assert!(
                 res3.is_ok() && !res3.unwrap(),
                 "Cluster idx {:?} is unset after set",
                 relative_idx
             );
 
-            let res4 = bitmap.set_bitmap_unused(idx, true);
+            let res4 = bitmap.set_unused(idx, true);
             assert!(
                 res4.is_ok() && bitmap.num_free_clusters() == initial_free_clusters,
                 "Clear cluster idx {:?} failed",
                 relative_idx
             );
 
-            let res5 = bitmap.is_cluster_free(idx);
+            let res5 = bitmap.is_cluster_unused(idx);
             assert!(
                 res5.is_ok() && res5.unwrap(),
                 "Cluster idx {:?} is still set after clear",
@@ -784,7 +787,7 @@ mod test {
         let initial_free_clusters = bitmap.num_free_clusters();
 
         let range_result =
-            bitmap.find_next_free_cluster_range(EXFAT_RESERVED_CLUSTERS, total_bits_len);
+            bitmap.find_next_unused_cluster_range(EXFAT_RESERVED_CLUSTERS, total_bits_len);
         assert!(
             range_result.is_ok(),
             "Fail to get a free range with {:?} clusters",
@@ -796,7 +799,7 @@ mod test {
         let mut start_idx: u32 = range_start_idx;
         let mut end_idx = range_start_idx + 1;
         while end_idx <= range_start_idx + total_bits_len {
-            let res1 = bitmap.set_bitmap_range_used(start_idx..end_idx, true);
+            let res1 = bitmap.set_range_used(start_idx..end_idx, true);
             assert!(
                 res1.is_ok() && bitmap.num_free_clusters() == initial_free_clusters - chunk_size,
                 "Set cluster chunk [{:?}, {:?}) failed",
@@ -805,7 +808,7 @@ mod test {
             );
 
             for idx in start_idx..end_idx {
-                let res = bitmap.is_cluster_free(idx);
+                let res = bitmap.is_cluster_unused(idx);
                 assert!(
                     res.is_ok() && !res.unwrap(),
                     "Cluster {:?} in chunk [{:?}, {:?}) is unset",
@@ -815,7 +818,7 @@ mod test {
                 );
             }
 
-            let res2 = bitmap.set_bitmap_range_unused(start_idx..end_idx, true);
+            let res2 = bitmap.set_range_unused(start_idx..end_idx, true);
             assert!(
                 res2.is_ok() && bitmap.num_free_clusters() == initial_free_clusters,
                 "Clear cluster chunk [{:?}, {:?}) failed",
@@ -823,7 +826,7 @@ mod test {
                 end_idx
             );
 
-            let res3 = bitmap.is_cluster_range_free(start_idx..end_idx);
+            let res3 = bitmap.is_cluster_range_unused(start_idx..end_idx);
             assert!(
                 res3.is_ok() && res3.unwrap(),
                 "Some bit in cluster chunk [{:?}, {:?}) is still set after clear",
@@ -845,7 +848,7 @@ mod test {
         let total_bits_len = 1000;
 
         let range_result =
-            bitmap.find_next_free_cluster_range(EXFAT_RESERVED_CLUSTERS, total_bits_len);
+            bitmap.find_next_unused_cluster_range(EXFAT_RESERVED_CLUSTERS, total_bits_len);
         assert!(
             range_result.is_ok(),
             "Fail to get a free range with {:?} clusters",
@@ -859,32 +862,20 @@ mod test {
         // 010010001000010000010000001...
         // chunk_size = k, relative_start_idx =(k-1)*(k+2)/2
         while end_idx <= range_start_idx + total_bits_len {
-            let _ = bitmap.set_bitmap_used(end_idx, true);
+            let _ = bitmap.set_used(end_idx, true);
             chunk_size += 1;
             start_idx = end_idx + 1;
             end_idx = start_idx + chunk_size;
         }
 
         for k in 1..chunk_size {
-            let start_idx_k = bitmap.find_next_free_cluster_range(range_start_idx, k);
+            let start_idx_k = bitmap.find_next_unused_cluster_range(range_start_idx, k);
             assert!(
                 start_idx_k.is_ok()
                     && start_idx_k.clone().unwrap().start
                         == (k - 1) * (k + 2) / 2 + range_start_idx
                     && start_idx_k.unwrap().end == (k * k + 3 * k - 2) / 2 + range_start_idx,
                 "Fail to find chunk size {:?}",
-                k
-            );
-        }
-
-        for k in 1..chunk_size {
-            let start_idx_k = bitmap.find_next_free_cluster_range_fast(range_start_idx, k);
-            assert!(
-                start_idx_k.is_ok()
-                    && start_idx_k.clone().unwrap().start
-                        == (k - 1) * (k + 2) / 2 + range_start_idx
-                    && start_idx_k.unwrap().end == (k * k + 3 * k - 2) / 2 + range_start_idx,
-                "Fail to find chunk size {:?} with fast",
                 k
             );
         }

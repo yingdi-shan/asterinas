@@ -9,7 +9,7 @@ use hashbrown::HashMap;
 use lru::LruCache;
 
 use super::{
-    bitmap::{ExfatBitmap, EXFAT_RESERVED_CLUSTERS},
+    bitmap::ExfatBitmap,
     fat::{ClusterID, ExfatChain, FatChainFlags, FatValue, FAT_ENTRY_SIZE},
     inode::ExfatInode,
     super_block::{ExfatBootSector, ExfatSuperBlock},
@@ -47,9 +47,9 @@ pub struct ExfatFS {
     mutex: Mutex<()>,
 }
 
-const LRU_CACHE_SIZE: usize = 1024;
+const FAT_LRU_CACHE_SIZE: usize = 1024;
 
-pub const EXFAT_ROOT_INO: Ino = 1;
+pub(super) const EXFAT_ROOT_INO: Ino = 1;
 
 impl ExfatFS {
     pub fn open(
@@ -68,7 +68,7 @@ impl ExfatFS {
             highest_inode_number: AtomicU64::new(EXFAT_ROOT_INO + 1),
             inodes: RwMutex::new(HashMap::new()),
             fat_cache: RwLock::new(LruCache::<ClusterID, ClusterID>::new(
-                NonZeroUsize::new(LRU_CACHE_SIZE).unwrap(),
+                NonZeroUsize::new(FAT_LRU_CACHE_SIZE).unwrap(),
             )),
             meta_cache: PageCache::with_capacity(fs_size, weak_self.clone() as _).unwrap(),
             mutex: Mutex::new(()),
@@ -90,13 +90,13 @@ impl ExfatFS {
 
         let root = ExfatInode::build_root_inode(weak_fs.clone(), root_chain.clone())?;
 
-        let upcase_table = ExfatUpcaseTable::load_upcase_table(
+        let upcase_table = ExfatUpcaseTable::load(
             weak_fs.clone(),
             root.page_cache().unwrap(),
             root_chain.clone(),
         )?;
 
-        let bitmap = ExfatBitmap::load_bitmap(
+        let bitmap = ExfatBitmap::load(
             weak_fs.clone(),
             root.page_cache().unwrap(),
             root_chain.clone(),

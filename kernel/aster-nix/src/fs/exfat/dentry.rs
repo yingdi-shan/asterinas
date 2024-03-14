@@ -19,9 +19,10 @@ use crate::{
     vm::vmo::Vmo,
 };
 
-pub const DENTRY_SIZE: usize = 32; // directory entry size
+pub(super) const DENTRY_SIZE: usize = 32; // directory entry size
+
 #[derive(Debug, Clone, Copy)]
-pub enum ExfatDentry {
+pub(super) enum ExfatDentry {
     File(ExfatFileDentry),
     Stream(ExfatStreamDentry),
     Name(ExfatNameDentry),
@@ -73,41 +74,52 @@ const EXFAT_ACL: u8 = 0xC2; // not specified in specification, can be used to pr
 const EXFAT_VENDOR_EXT: u8 = 0xE0; // vendor extension entry
 const EXFAT_VENDOR_ALLOC: u8 = 0xE1; // vendor allocation entry
 
-impl TryFrom<&[u8]> for ExfatDentry {
+#[repr(C, packed)]
+#[derive(Clone, Debug, Default, Copy, Pod)]
+pub(super) struct RawExfatDentry {
+    pub(super) dentry_type: u8,
+    pub(super) value: [u8; 31],
+}
+
+impl TryFrom<RawExfatDentry> for ExfatDentry {
     type Error = crate::error::Error;
-    fn try_from(value: &[u8]) -> Result<Self> {
-        if value.len() != DENTRY_SIZE {
-            return_errno_with_message!(Errno::EINVAL, "directory entry size mismatch")
-        }
-        match value[0] {
-            EXFAT_FILE => Ok(ExfatDentry::File(ExfatFileDentry::from_bytes(value))),
-            EXFAT_STREAM => Ok(ExfatDentry::Stream(ExfatStreamDentry::from_bytes(value))),
-            EXFAT_NAME => Ok(ExfatDentry::Name(ExfatNameDentry::from_bytes(value))),
-            EXFAT_BITMAP => Ok(ExfatDentry::Bitmap(ExfatBitmapDentry::from_bytes(value))),
-            EXFAT_UPCASE => Ok(ExfatDentry::Upcase(ExfatUpcaseDentry::from_bytes(value))),
+    fn try_from(dentry: RawExfatDentry) -> Result<Self> {
+        let dentry_bytes = dentry.as_bytes();
+        match dentry.dentry_type {
+            EXFAT_FILE => Ok(ExfatDentry::File(ExfatFileDentry::from_bytes(dentry_bytes))),
+            EXFAT_STREAM => Ok(ExfatDentry::Stream(ExfatStreamDentry::from_bytes(
+                dentry_bytes,
+            ))),
+            EXFAT_NAME => Ok(ExfatDentry::Name(ExfatNameDentry::from_bytes(dentry_bytes))),
+            EXFAT_BITMAP => Ok(ExfatDentry::Bitmap(ExfatBitmapDentry::from_bytes(
+                dentry_bytes,
+            ))),
+            EXFAT_UPCASE => Ok(ExfatDentry::Upcase(ExfatUpcaseDentry::from_bytes(
+                dentry_bytes,
+            ))),
             EXFAT_VENDOR_EXT => Ok(ExfatDentry::VendorExt(ExfatVendorExtDentry::from_bytes(
-                value,
+                dentry_bytes,
             ))),
             EXFAT_VENDOR_ALLOC => Ok(ExfatDentry::VendorAlloc(
-                ExfatVendorAllocDentry::from_bytes(value),
+                ExfatVendorAllocDentry::from_bytes(dentry_bytes),
             )),
 
             EXFAT_UNUSED => Ok(ExfatDentry::UnUsed),
             //Deleted
-            0x01..0x80 => Ok(ExfatDentry::Deleted(ExfatDeletedDentry::from_bytes(value))),
+            0x01..0x80 => Ok(ExfatDentry::Deleted(ExfatDeletedDentry::from_bytes(
+                dentry_bytes,
+            ))),
             //Primary
             0x80..0xC0 => Ok(ExfatDentry::GenericPrimary(
-                ExfatGenericPrimaryDentry::from_bytes(value),
+                ExfatGenericPrimaryDentry::from_bytes(dentry_bytes),
             )),
             //Secondary
             0xC0..=0xFF => Ok(ExfatDentry::GenericSecondary(
-                ExfatGenericSecondaryDentry::from_bytes(value),
+                ExfatGenericSecondaryDentry::from_bytes(dentry_bytes),
             )),
         }
     }
 }
-
-const MAX_NAME_DENTRIES: usize = MAX_NAME_LENGTH / EXFAT_FILE_NAME_LEN;
 
 //State machine used to validate dentry set.
 enum ExfatValidateDentryMode {
@@ -121,6 +133,7 @@ enum ExfatValidateDentryMode {
 
 impl ExfatValidateDentryMode {
     fn transit_to_next_state(&self, dentry: &ExfatDentry) -> Result<Self> {
+        const MAX_NAME_DENTRIES: usize = MAX_NAME_LENGTH / EXFAT_FILE_NAME_LEN;
         match self {
             ExfatValidateDentryMode::Started => {
                 if matches!(dentry, ExfatDentry::File(_)) {
@@ -176,8 +189,7 @@ pub trait Checksum {
 
 /// A set of dentries that collectively describe a file or folder.
 /// Root directory cannot be represented as an ordinal dentryset.
-
-pub struct ExfatDentrySet {
+pub(super) struct ExfatDentrySet {
     dentries: Vec<ExfatDentry>,
 }
 
@@ -420,7 +432,7 @@ impl Checksum for ExfatDentrySet {
     }
 }
 
-pub struct ExfatDentryIterator {
+pub(super) struct ExfatDentryIterator {
     /// The dentry position in current inode.
     entry: u32,
     /// The page cache of the iterated inode.
@@ -472,7 +484,7 @@ impl Iterator for ExfatDentryIterator {
         }
 
         //The result is always OK.
-        let dentry_result = ExfatDentry::try_from(dentry_buf.as_bytes()).unwrap();
+        let dentry_result = ExfatDentry::try_from(RawExfatDentry::from_bytes(&dentry_buf)).unwrap();
 
         self.entry += 1;
         if self.size.is_some() {
@@ -488,7 +500,7 @@ impl Iterator for ExfatDentryIterator {
 #[repr(C, packed)]
 #[derive(Clone, Debug, Default, Copy, Pod)]
 // For files & directorys
-pub struct ExfatFileDentry {
+pub(super) struct ExfatFileDentry {
     pub(super) dentry_type: u8, // 0x85
     //Number of Secondary directory entries.
     //2 to 18 (1 StreamDentry + rest NameDentry)
@@ -526,7 +538,7 @@ pub struct ExfatFileDentry {
 #[repr(C, packed)]
 #[derive(Clone, Debug, Default, Copy, Pod)]
 // MUST be immediately follow the FileDentry (the second dentry in a dentry set)
-pub struct ExfatStreamDentry {
+pub(super) struct ExfatStreamDentry {
     pub(super) dentry_type: u8, // 0xC0
     pub(super) flags: u8, // bit0: AllocationPossible (must be 1); bit1: NoFatChain (=1 <=> contiguous)
     pub(super) reserved1: u8,
@@ -544,7 +556,7 @@ pub type UTF16Char = u16;
 #[repr(C, packed)]
 #[derive(Clone, Debug, Default, Copy, Pod)]
 // MUST be immediately follow the StreamDentry in the number of NameLength/15 rounded up
-pub struct ExfatNameDentry {
+pub(super) struct ExfatNameDentry {
     pub(super) dentry_type: u8,                                // 0xC1
     pub(super) flags: u8,                                      // first two bits must be zero
     pub(super) unicode_0_14: [UTF16Char; EXFAT_FILE_NAME_LEN], // 15 (or less) characters of file name
@@ -552,7 +564,7 @@ pub struct ExfatNameDentry {
 
 #[repr(C, packed)]
 #[derive(Clone, Debug, Default, Copy, Pod)]
-pub struct ExfatBitmapDentry {
+pub(super) struct ExfatBitmapDentry {
     pub(super) dentry_type: u8,
     pub(super) flags: u8,
     pub(super) reserved: [u8; 18],
@@ -562,7 +574,7 @@ pub struct ExfatBitmapDentry {
 
 #[repr(C, packed)]
 #[derive(Clone, Debug, Default, Copy, Pod)]
-pub struct ExfatUpcaseDentry {
+pub(super) struct ExfatUpcaseDentry {
     pub(super) dentry_type: u8,
     pub(super) reserved1: [u8; 3],
     pub(super) checksum: u32,
@@ -573,7 +585,7 @@ pub struct ExfatUpcaseDentry {
 
 #[repr(C, packed)]
 #[derive(Clone, Debug, Default, Copy, Pod)]
-pub struct ExfatVendorExtDentry {
+pub(super) struct ExfatVendorExtDentry {
     pub(super) dentry_type: u8,
     pub(super) flags: u8,
     pub(super) vendor_guid: [u8; 16],
@@ -582,7 +594,7 @@ pub struct ExfatVendorExtDentry {
 
 #[repr(C, packed)]
 #[derive(Clone, Debug, Default, Copy, Pod)]
-pub struct ExfatVendorAllocDentry {
+pub(super) struct ExfatVendorAllocDentry {
     pub(super) dentry_type: u8,
     pub(super) flags: u8,
     pub(super) vendor_guid: [u8; 16],
@@ -593,7 +605,7 @@ pub struct ExfatVendorAllocDentry {
 
 #[repr(C, packed)]
 #[derive(Clone, Debug, Default, Copy, Pod)]
-pub struct ExfatGenericPrimaryDentry {
+pub(super) struct ExfatGenericPrimaryDentry {
     pub(super) dentry_type: u8,
     pub(super) secondary_count: u8,
     pub(super) checksum: u16,
@@ -605,7 +617,7 @@ pub struct ExfatGenericPrimaryDentry {
 
 #[repr(C, packed)]
 #[derive(Clone, Debug, Default, Copy, Pod)]
-pub struct ExfatGenericSecondaryDentry {
+pub(super) struct ExfatGenericSecondaryDentry {
     pub(super) dentry_type: u8,
     pub(super) flags: u8,
     pub(super) custom_defined: [u8; 18],
@@ -615,13 +627,13 @@ pub struct ExfatGenericSecondaryDentry {
 
 #[repr(C, packed)]
 #[derive(Clone, Debug, Default, Copy, Pod)]
-pub struct ExfatDeletedDentry {
+pub(super) struct ExfatDeletedDentry {
     pub(super) dentry_type: u8,
     pub(super) reserverd: [u8; 31],
 }
 
 #[derive(Default, Debug)]
-pub struct ExfatName(Vec<UTF16Char>);
+pub(super) struct ExfatName(Vec<UTF16Char>);
 
 impl ExfatName {
     pub fn from_name_dentries(
