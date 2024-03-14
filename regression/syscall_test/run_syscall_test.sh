@@ -6,6 +6,7 @@ SCRIPT_DIR=$(dirname "$0")
 TEST_TMP_DIR=${SYSCALL_TEST_DIR:-/tmp}
 TEST_BIN_DIR=$SCRIPT_DIR/tests
 BLOCKLIST_DIR=$SCRIPT_DIR/blocklists
+EXFAT_BLOCKLIST_DIR=$SCRIPT_DIR/exfat_blocklists
 FAIL_CASES=$SCRIPT_DIR/fail_cases
 BLOCK=""
 TESTS=0
@@ -16,7 +17,10 @@ RED='\033[0;31m'
 NC='\033[0m'
 
 get_blocklist_subtests(){
-    if [ -f $BLOCKLIST_DIR/$1 ]; then
+    if [ $SYSCALL_TEST_EXFAT -eq 1 ]; then
+        BLOCK=$(sed ':a;N;$!ba;s/\n/:/g' $EXFAT_BLOCKLIST_DIR/$1)
+        return 0
+    elif [ -f $BLOCKLIST_DIR/$1 ]; then
         BLOCK=$(sed ':a;N;$!ba;s/\n/:/g' $BLOCKLIST_DIR/$1)
         return 0
     else
@@ -31,10 +35,11 @@ run_one_test(){
     export TEST_TMPDIR=$TEST_TMP_DIR
     ret=0
     if [ -f $TEST_BIN_DIR/$1 ]; then
-        rm -rf $TEST_TMP_DIR/*
         get_blocklist_subtests $1
         $TEST_BIN_DIR/$1 --gtest_filter=-$BLOCK
         ret=$?
+        #After executing the test, it is necessary to clean the directory to ensure no residual data remains
+        rm -rf $TEST_TMP_DIR/*
     else
         echo -e "Warning: $1 test does not exit"
         ret=1
@@ -44,6 +49,7 @@ run_one_test(){
 }
 
 rm -f $FAIL_CASES && touch $FAIL_CASES
+rm -rf $TEST_TMP_DIR/*
 
 for syscall_test in $(find $TEST_BIN_DIR/. -name \*_test) ; do
     test_name=$(basename "$syscall_test")
