@@ -10,9 +10,9 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    container: asterinas/asterinas:0.4.0
+    container: asterinas/asterinas:0.4.1
     steps:
-      - run: echo "Running in asterinas/asterinas:0.4.0"
+      - run: echo "Running in asterinas/asterinas:0.4.1"
 
       - uses: actions/checkout@v4
       
@@ -23,9 +23,9 @@ jobs:
   unit-test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    container: asterinas/asterinas:0.4.0
+    container: asterinas/asterinas:0.4.1
     steps:
-      - run: echo "Running in asterinas/asterinas:0.4.0"
+      - run: echo "Running in asterinas/asterinas:0.4.1"
 
       - uses: actions/checkout@v4
 
@@ -35,16 +35,16 @@ jobs:
 
       - name: Ktest Unit Test
         id: ktest_unit_test
-        run: make update_initramfs && make ktest
+        run: make ktest
 
       # TODO: add component check.
 
   integration-test:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    container: asterinas/asterinas:0.4.0
+    container: asterinas/asterinas:0.4.1
     steps:
-      - run: echo "Running in asterinas/asterinas:0.4.0"
+      - run: echo "Running in asterinas/asterinas:0.4.1"
 
       - uses: actions/checkout@v4
 
@@ -65,20 +65,20 @@ jobs:
         run: make run AUTO_TEST=boot ENABLE_KVM=0 BOOT_PROTOCOL=linux-legacy32 RELEASE_MODE=1
 
       - name: Boot Test (Linux EFI Handover Boot Protocol)
-        id: syscall_test_linux_efi_handover64
+        id: boot_test_linux_efi_handover64
         run: make run AUTO_TEST=boot ENABLE_KVM=0 BOOT_PROTOCOL=linux-efi-handover64 RELEASE_MODE=1
 
-      - name: Syscall Test at Ext2 (Linux EFI Handover Boot Protocol)
-        id: syscall_test_at_ext2_linux
-        run: make run AUTO_TEST=syscall SYSCALL_TEST_DIR=/ext2 ENABLE_KVM=0 BOOT_PROTOCOL=linux-efi-handover64 RELEASE_MODE=1
+      - name: Syscall Test (Linux EFI Handover Boot Protocol)
+        id: syscall_test
+        run: make run AUTO_TEST=syscall ENABLE_KVM=0 BOOT_PROTOCOL=linux-efi-handover64 RELEASE_MODE=1
 
       - name: Syscall Test at Ext2 (MicroVM)
-        id: syscall_test_at_ext2_microvm
+        id: syscall_test_at_ext2
         run: make run AUTO_TEST=syscall SYSCALL_TEST_DIR=/ext2 ENABLE_KVM=0 QEMU_MACHINE=microvm RELEASE_MODE=1
 
       - name: Syscall Test at Exfat
         id: syscall_test_at_exfat_linux
-        run: make run AUTO_TEST=syscall SYSCALL_TEST_DIR=/exfat SYSCALL_TEST_EXFAT=1 ENABLE_KVM=0 BOOT_PROTOCOL=linux-efi-handover64 RELEASE_MODE=1
+        run: make run AUTO_TEST=syscall SYSCALL_TEST_DIR=/exfat EXTRA_BLOCKLISTS_DIRS=blocklists.exfat ENABLE_KVM=0 BOOT_PROTOCOL=linux-efi-handover64 RELEASE_MODE=1
         
       - name: Regression Test (MicroVM)
         id: regression_test_linux

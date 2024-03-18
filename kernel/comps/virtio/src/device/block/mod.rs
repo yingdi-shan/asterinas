@@ -36,7 +36,7 @@ pub enum ReqType {
     In = 0,
     Out = 1,
     Flush = 4,
-    GetID = 8,
+    GetId = 8,
     Discard = 11,
     WriteZeroes = 13,
 }

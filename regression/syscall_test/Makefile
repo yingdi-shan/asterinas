@@ -1,9 +1,34 @@
 # SPDX-License-Identifier: MPL-2.0
 
-TESTS ?= chmod_test chown_test fsync_test getdents_test link_test lseek_test mkdir_test \
-		open_create_test open_test pty_test read_test rename_test stat_test \
-		statfs_test symlink_test sync_test truncate_test uidgid_test unlink_test \
-		vdso_clock_gettime_test write_test
+# A list of enabled system call test suites from Gvisor.
+# Each test suite consists of multiple test cases,
+# some of which are disabled by the blocklists.
+#
+# Please keep the list sorted by name.
+TESTS ?= \
+	alarm_test \
+	chmod_test \
+	chown_test \
+	fsync_test \
+	getdents_test \
+	link_test \
+	lseek_test \
+	mkdir_test \
+	open_create_test \
+	open_test \
+	pty_test \
+	read_test \
+	rename_test \
+	stat_test \
+	statfs_test \
+	symlink_test \
+	sync_test \
+	truncate_test \
+	uidgid_test \
+	unlink_test \
+	vdso_clock_gettime_test \
+	write_test \
+	# The end of the list
 
 MKFILE_PATH := $(abspath $(lastword $(MAKEFILE_LIST)))
 CUR_DIR := $(patsubst %/,%,$(dir $(MKFILE_PATH)))
@@ -18,10 +43,9 @@ INITRAMFS ?= $(CUR_DIR)/../build/initramfs
 TARGET_DIR := $(INITRAMFS)/opt/syscall_test
 RUN_BASH := $(CUR_DIR)/run_syscall_test.sh
 BLOCK_LIST := $(CUR_DIR)/blocklists
-EXFAT_BLOCK_LIST := $(CUR_DIR)/exfat_blocklists
+EXFAT_BLOCK_LIST := $(CUR_DIR)/blocklists.exfat
 
-.PHONY: all clean
-
+.PHONY: all
 all: $(TESTS)
 
 $(TESTS): $(BIN_DIR) $(TARGET_DIR)
@@ -48,10 +72,11 @@ $(TARGET_DIR): $(RUN_BASH) $(BLOCK_LIST) $(EXFAT_BLOCK_LIST)
 	@mkdir $@/tests
 	@# Copy blocklists
 	@cp -rf $(BLOCK_LIST) $@
-	@# Copy Exfat specific blocklists
+	@# Copy exFAT specific blocklists
 	@cp -rf $(EXFAT_BLOCK_LIST) $@
 	@# Copy bash script
 	@cp -f $(RUN_BASH) $@
 
+.PHONY: clean
 clean:
 	@rm -rf $(TARGET_DIR)

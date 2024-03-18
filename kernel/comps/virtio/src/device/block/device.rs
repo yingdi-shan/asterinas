@@ -191,7 +191,7 @@ impl DeviceInner {
     fn get_id(&self) -> String {
         let id = self.id_allocator.lock().pop().unwrap() as usize;
         let req = BlockReq {
-            type_: ReqType::GetID as _,
+            type_: ReqType::GetId as _,
             reserved: 0,
             sector: 0,
         };

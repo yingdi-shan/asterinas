@@ -22,11 +22,18 @@ get_blocklist_subtests(){
         return 0
     elif [ -f $BLOCKLIST_DIR/$1 ]; then
         BLOCK=$(sed ':a;N;$!ba;s/\n/:/g' $BLOCKLIST_DIR/$1)
-        return 0
     else
         BLOCK=""
         return 1
     fi
+
+    for extra_dir in $EXTRA_BLOCKLISTS_DIRS ; do
+        if [ -f $SCRIPT_DIR/$extra_dir/$1 ]; then
+            BLOCK="${BLOCK}:$(sed ':a;N;$!ba;s/\n/:/g' $SCRIPT_DIR/$extra_dir/$1)"
+        fi
+    done
+
+    return 0
 }
 
 run_one_test(){
