@@ -105,15 +105,15 @@ impl TryFrom<RawExfatDentry> for ExfatDentry {
             )),
 
             EXFAT_UNUSED => Ok(ExfatDentry::UnUsed),
-            //Deleted
+            // Deleted
             0x01..0x80 => Ok(ExfatDentry::Deleted(ExfatDeletedDentry::from_bytes(
                 dentry_bytes,
             ))),
-            //Primary
+            // Primary
             0x80..0xC0 => Ok(ExfatDentry::GenericPrimary(
                 ExfatGenericPrimaryDentry::from_bytes(dentry_bytes),
             )),
-            //Secondary
+            // Secondary
             0xC0..=0xFF => Ok(ExfatDentry::GenericSecondary(
                 ExfatGenericSecondaryDentry::from_bytes(dentry_bytes),
             )),
@@ -121,12 +121,12 @@ impl TryFrom<RawExfatDentry> for ExfatDentry {
     }
 }
 
-//State machine used to validate dentry set.
+// State machine used to validate dentry set.
 enum ExfatValidateDentryMode {
     Started,
     GetFile,
     GetStream,
-    //17 name dentires at maximal.
+    // 17 name dentires at maximal.
     GetName(usize),
     GetBenignSecondary,
 }
@@ -315,7 +315,7 @@ impl ExfatDentrySet {
 
     pub(super) fn to_le_bytes(&self) -> Vec<u8> {
         // It may be slow to copy at the granularity of byte.
-        //self.dentries.iter().map(|dentry| dentry.to_le_bytes()).flatten().collect::<Vec<u8>>()
+        // self.dentries.iter().map(|dentry| dentry.to_le_bytes()).flatten().collect::<Vec<u8>>()
 
         let mut bytes = vec![0; self.dentries.len() * DENTRY_SIZE];
         for (i, dentry) in self.dentries.iter().enumerate() {
@@ -329,7 +329,7 @@ impl ExfatDentrySet {
     fn validate_dentry_set(&self) -> Result<()> {
         let mut status = ExfatValidateDentryMode::Started;
 
-        //Maximum dentries = 255 + 1(File dentry)
+        // Maximum dentries = 255 + 1(File dentry)
         if self.dentries.len() > u8::MAX as usize + 1 {
             return_errno_with_message!(Errno::EINVAL, "too many dentries")
         }
@@ -397,7 +397,7 @@ impl ExfatDentrySet {
         }
         Ok(name)
     }
-    ///Name dentries are not permited to modify. We should create a new dentry set for renaming.
+    /// Name dentries are not permited to modify. We should create a new dentry set for renaming.
 
     fn calculate_checksum(&self) -> u16 {
         const CHECKSUM_BYTES_RANGE: Range<usize> = 2..4;
@@ -483,7 +483,7 @@ impl Iterator for ExfatDentryIterator {
             )));
         }
 
-        //The result is always OK.
+        // The result is always OK.
         let dentry_result = ExfatDentry::try_from(RawExfatDentry::from_bytes(&dentry_buf)).unwrap();
 
         self.entry += 1;
@@ -502,32 +502,32 @@ impl Iterator for ExfatDentryIterator {
 // For files & directorys
 pub(super) struct ExfatFileDentry {
     pub(super) dentry_type: u8, // 0x85
-    //Number of Secondary directory entries.
-    //2 to 18 (1 StreamDentry + rest NameDentry)
+    // Number of Secondary directory entries.
+    // 2 to 18 (1 StreamDentry + rest NameDentry)
     pub(super) num_secondary: u8,
-    // checksum of all directory entries in the given set excluding this field,calculated on file and secondary entries.
+    // Checksum of all directory entries in the given set excluding this field,calculated on file and secondary entries.
     pub(super) checksum: u16,
 
     // bit0: read-only; bit1: hidden; bit2: system; bit4: directory; bit5: archive
     pub(super) attribute: u16,
     pub(super) reserved1: u16,
 
-    //Create time, however, ctime in unix metadata means ***change time***.
+    // Create time, however, ctime in unix metadata means ***change time***.
     pub(super) create_time: u16,
     pub(super) create_date: u16,
 
     pub(super) modify_time: u16,
     pub(super) modify_date: u16,
 
-    //The timestamp for access_time has double seconds granularity.
+    // The timestamp for access_time has double seconds granularity.
     pub(super) access_time: u16,
     pub(super) access_date: u16,
 
-    //High precision time in 10ms
+    // High precision time in 10ms
     pub(super) create_time_cs: u8,
     pub(super) modify_time_cs: u8,
 
-    //Timezone for various time
+    // Timezone for various time
     pub(super) create_utc_offset: u8,
     pub(super) modify_utc_offset: u8,
     pub(super) access_utc_offset: u8,
@@ -661,22 +661,22 @@ impl ExfatName {
             return_errno_with_message!(Errno::EINVAL, "not a valid char")
         }
         self.0.push(value);
-        //self.0.push(upcase_table.lock().transform_char_to_upcase(value)?);
+        // self.0.push(upcase_table.lock().transform_char_to_upcase(value)?);
         Ok(())
     }
 
     fn is_valid_char(value: UTF16Char) -> bool {
         match value {
-            0..0x20 => false, //Control Code
-            0x22 => false,    //Quotation Mark
-            0x2A => false,    //Asterisk
-            0x2F => false,    //Forward slash
-            0x3A => false,    //Colon
-            0x3C => false,    //Less-than sign
-            0x3E => false,    //Greater-than sign
-            0x3F => false,    //Question mark
-            0x5C => false,    //Back slash
-            0x7C => false,    //Vertical bar
+            0..0x20 => false, // Control Code
+            0x22 => false,    // Quotation Mark
+            0x2A => false,    // Asterisk
+            0x2F => false,    // Forward slash
+            0x3A => false,    // Colon
+            0x3C => false,    // Less-than sign
+            0x3E => false,    // Greater-than sign
+            0x3F => false,    // Question mark
+            0x5C => false,    // Back slash
+            0x7C => false,    // Vertical bar
             _ => true,
         }
     }
@@ -697,7 +697,7 @@ impl ExfatName {
 
     pub fn from_str(name: &str, upcase_table: Arc<SpinLock<ExfatUpcaseTable>>) -> Result<Self> {
         let name = ExfatName(name.encode_utf16().collect());
-        //upcase_table.lock().transform_to_upcase(&mut name.0)?;
+        // upcase_table.lock().transform_to_upcase(&mut name.0)?;
         name.verify()?;
         Ok(name)
     }
@@ -731,7 +731,7 @@ impl ExfatName {
         {
             return_errno_with_message!(Errno::EINVAL, "invalid file name.")
         }
-        //TODO:verify dots
+        // TODO:verify dots
         Ok(())
     }
 }

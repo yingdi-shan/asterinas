@@ -19,11 +19,11 @@ pub fn calc_checksum_32(data: &[u8]) -> u32 {
     checksum
 }
 
-///Calculating checksum, ignoring certarin bytes in the range
+/// Calculating checksum, ignoring certarin bytes in the range
 pub fn calc_checksum_16(data: &[u8], ignore: core::ops::Range<usize>, prev_checksum: u16) -> u16 {
     let mut result = prev_checksum;
     for (pos, &value) in data.iter().enumerate() {
-        //Ignore the checksum field
+        // Ignore the checksum field
         if ignore.contains(&pos) {
             continue;
         }
@@ -47,10 +47,10 @@ const EXFAT_TIME_ZONE_VALID: u8 = 1 << 7;
 
 #[derive(Default, Debug, Clone, Copy)]
 pub struct DosTimestamp {
-    //Timestamp at the precesion of double seconds.
+    // Timestamp at the precesion of double seconds.
     pub(super) time: u16,
     pub(super) date: u16,
-    //Precise time in 10ms.
+    // Precise time in 10ms.
     pub(super) increament_10ms: u8,
     pub(super) utc_offset: u8,
 }
@@ -63,7 +63,7 @@ impl DosTimestamp {
             DosTimestamp::from_duration(now_as_duration(&crate::time::ClockID::CLOCK_REALTIME)?)
         }
 
-        //When ktesting, the time module has not been initialized yet, return a fake value instead.
+        // When ktesting, the time module has not been initialized yet, return a fake value instead.
         #[cfg(ktest)]
         {
             use crate::time::SystemTime;
@@ -84,7 +84,7 @@ impl DosTimestamp {
     }
 
     pub fn from_duration(duration: Duration) -> Result<Self> {
-        //FIXME:UTC offset information is missing.
+        // FIXME:UTC offset information is missing.
 
         let date_time_result =
             OffsetDateTime::from_unix_timestamp_nanos(duration.as_nanos() as i128);
@@ -154,7 +154,7 @@ impl DosTimestamp {
         if (self.utc_offset & EXFAT_TIME_ZONE_VALID) != 0u8 {
             sec = Self::ajust_time_zone(sec, self.utc_offset & (!EXFAT_TIME_ZONE_VALID));
         } else {
-            //TODO: Use mount info for timezone adjustment.
+            // TODO: Use mount info for timezone adjustment.
         }
 
         Ok(Duration::new(sec, nano_sec))
@@ -169,7 +169,7 @@ impl DosTimestamp {
     }
 
     fn time_zone_sec(x: u8) -> u64 {
-        //Each time zone represents 15 minutes.
+        // Each time zone represents 15 minutes.
         x as u64 * 15 * 60
     }
 }

@@ -14,14 +14,14 @@ use super::{
 };
 use crate::{fs::exfat::fat::FatChainFlags, prelude::*, vm::vmo::Vmo};
 
-//TODO:use u64
+// TODO:use u64
 type BitStore = u8;
 
 const BITS_PER_BYTE: usize = 8;
 
 #[derive(Debug, Default)]
 pub(super) struct ExfatBitmap {
-    // start cluster of allocation bitmap
+    // Start cluster of allocation bitmap.
     chain: ExfatChain,
     bitvec: BitVec<BitStore>,
     dirty_bytes: VecDeque<Range<usize>>,
@@ -124,13 +124,13 @@ impl ExfatBitmap {
         Ok(true)
     }
 
-    //Return the first unused cluster
-    pub(super) fn find_next_unused_cluster(&self, cluster: u32) -> Result<u32> {
+    /// Return the first unused cluster.
+    pub(super) fn find_next_unused_cluster(&self, cluster: ClusterID) -> Result<ClusterID> {
         let clusters = self.find_next_unused_cluster_range_by_bits(cluster, 1)?;
         Ok(clusters.start)
     }
 
-    //Return the first unused cluster range, set cluster_num=1 to find a single cluster
+    /// Return the first unused cluster range, set num_clusters=1 to find a single cluster.
     fn find_next_unused_cluster_range_by_bits(
         &self,
         search_start_cluster: ClusterID,
@@ -169,7 +169,73 @@ impl ExfatBitmap {
         return_errno!(Errno::ENOSPC)
     }
 
-    //Return the next contiguous unused clusters, set cluster_num=1 to find a single cluster
+    /// Make sure the bit at the range start position is 0.
+    fn adjust_head_pos(
+        &self,
+        bytes: &[BitStore], 
+        mut cur_unit_index: u32, 
+        mut cur_unit_offset: u32, 
+        total_cluster_num: u32)
+        -> (u32, u32) {
+        let unit_size: u32 = (BITS_PER_BYTE * core::mem::size_of::<BitStore>()) as u32;
+        while cur_unit_index < total_cluster_num {
+            let leading_zeros = bytes[cur_unit_index as usize].leading_zeros();
+            let head_cluster_num = unit_size - cur_unit_offset;
+            if leading_zeros == 0 {
+                // Fall over to the next unit, we need to continue checking.
+                cur_unit_index += 1;
+                cur_unit_offset = 0;
+            }
+            else {
+                // Stop at current unit, we may need to adjust the cur_offset
+                cur_unit_offset = cur_unit_offset.max(unit_size - leading_zeros);
+                break;
+            }
+        }
+        (cur_unit_index, cur_unit_offset)
+    }
+
+    /// Check if the next mid_unit_num units are zero.
+    /// If not, return the index of the first not zero unit.
+    fn check_mid_units(&self, bytes: &[BitStore], cur_unit_index: u32, mid_unit_num: u32) -> u32 {
+        for i in 1..mid_unit_num + 1 {
+            if bytes[(cur_unit_index + i) as usize] != 0 {
+                return cur_unit_index + 1;
+            }
+        }
+        cur_unit_index
+    }
+
+    /// Check if the tail unit is valid.
+    /// Currently not used.
+    fn check_tail_bits(
+        &self, 
+        bytes: &[BitStore], 
+        tail_idx: u32,
+        tail_cluster_num: u32,
+        complete_unit_num: u32,
+        rest_cluster_num: u32)
+        -> bool {
+        let valid_bytes_num = if rest_cluster_num > 0 {complete_unit_num + 1} else {complete_unit_num};
+        let mut tail_byte: u8 = 0;
+        if tail_idx == complete_unit_num {
+            tail_byte |= 0xFF_u8 - ((1_u8 << rest_cluster_num) - 1);
+        }
+        if tail_idx < valid_bytes_num {
+            tail_byte |= bytes[tail_idx as usize];
+        }
+        let tailing_zeros = tail_byte.trailing_zeros();
+        tailing_zeros >= tail_cluster_num
+    }
+
+    fn make_range(&self, cur_unit_index: u32, cur_unit_offset: u32, num_clusters: u32) -> Range<ClusterID> {
+        let unit_size: u32 = (BITS_PER_BYTE * core::mem::size_of::<BitStore>()) as u32;
+        let result_bit_index = cur_unit_index * unit_size + cur_unit_offset;
+        result_bit_index + EXFAT_RESERVED_CLUSTERS
+            ..result_bit_index + EXFAT_RESERVED_CLUSTERS + num_clusters
+    }
+
+    /// Return the next contiguous unused clusters, set cluster_num=1 to find a single cluster
     pub(super) fn find_next_unused_cluster_range(
         &self,
         search_start_cluster: ClusterID,
@@ -190,107 +256,59 @@ impl ExfatBitmap {
         let total_cluster_num = self.fs().super_block().num_clusters - EXFAT_RESERVED_CLUSTERS;
         let complete_unit_num = total_cluster_num / unit_size;
         let rest_cluster_num = total_cluster_num % unit_size;
-        let mut head_cluster_num;
-        let mut mid_unit_num;
-        let mut tail_cluster_num;
-        let mut found: bool = false;
-        let mut result_bit_index = 0;
-        if num_clusters > unit_size {
-            // treat a continuous bit chunk as lead_bits+mid_units+tail_bits
-            // mid_units are unit aligned
-            // for example: 11110000 00000000 00000000 00111111
-            //                  **** -------- -------- ..
-            //                  ^(start bit)
-            // (*): head_bits;  (-): mid_units;  (.): tail_bits
-            // the start bit can be identified with a pair (cur_unit_index, cur_unit_offset)
-            while cur_unit_index < complete_unit_num {
-                found = true;
-                head_cluster_num = unit_size - cur_unit_offset;
-                mid_unit_num = (num_clusters - head_cluster_num) / unit_size;
-                tail_cluster_num = (num_clusters - head_cluster_num) % unit_size;
-
-                // if the last complete unit to be checked is out of range, stop searching
-                if cur_unit_index + mid_unit_num >= complete_unit_num {
-                    found = false;
-                    break;
-                }
-
-                // first, check for the head bits
-                let leading_zeros = bytes[cur_unit_index as usize].leading_zeros();
-                if head_cluster_num > leading_zeros {
-                    cur_unit_offset = unit_size - leading_zeros;
-                    if cur_unit_offset == unit_size {
-                        cur_unit_index += 1;
-                        cur_unit_offset = 0;
-                    }
-                    found = false;
-                    continue;
-                }
-
-                // then check for the mid units, these units should be all zero
-                // due to previous check, there will be no array out of bounds situation
-                for i in 1..mid_unit_num + 1 {
-                    if bytes[(cur_unit_index + i) as usize] != 0 {
-                        cur_unit_index += i;
-                        cur_unit_offset =
-                            unit_size - bytes[(cur_unit_index + i) as usize].leading_zeros();
-                        if cur_unit_offset == unit_size {
-                            cur_unit_index += 1;
-                            cur_unit_offset = 0;
-                        }
-                        found = false;
-                        break;
-                    }
-                }
-
-                if !found {
-                    continue;
-                }
-
-                // at last, check for the tail bits
-                let mut tail_byte: u8 = 0;
-                if cur_unit_index + mid_unit_num + 1 == complete_unit_num {
-                    // for the tail part, there are two special cases:
-                    //      1. this part is out of range;
-                    //      2. this part exists, but are partly invaild;
-                    if rest_cluster_num == 0 {
-                        // in this case, the tail part is out of range
-                        found = tail_cluster_num == 0;
-                        result_bit_index = cur_unit_index * unit_size + cur_unit_offset;
-                        break;
-                    } else {
-                        // in this case, the tail unit isn't a complete unit, we should set the invaild part of this unit to 1
-                        // the invaild part <=> high (unit_size - rest_cluster_num) bits of tail unit
-                        tail_byte |= 0xFF_u8 - ((1_u8 << rest_cluster_num) - 1);
-                    }
-                }
-                tail_byte |= bytes[(cur_unit_index + mid_unit_num + 1) as usize];
-                let tailing_zeros = tail_byte.trailing_zeros();
-                if tail_cluster_num > tailing_zeros {
-                    cur_unit_index = cur_unit_index + mid_unit_num + 1;
-                    cur_unit_offset = tailing_zeros + 1;
-                    if cur_unit_offset == unit_size {
-                        cur_unit_index += 1;
-                        cur_unit_offset = 0;
-                    }
-                    found = false;
-                    continue;
-                }
-
-                // if we reach here, it means we have found a result
-                result_bit_index = cur_unit_index * unit_size + cur_unit_offset;
+        let valid_bytes_num = if rest_cluster_num > 0 {complete_unit_num + 1} else {complete_unit_num};
+        if num_clusters <= unit_size {
+            // If this case, back to the simple function
+            return self.find_next_unused_cluster_range_by_bits(search_start_cluster, num_clusters);
+        }
+        // Treat a continuous bit chunk as lead_bits+mid_units+tail_bits (mid_units are unit aligned)
+        // For example: 11110000 00000000 00000000 00111111
+        //                  **** -------- -------- ..
+        //                  ^(start bit)
+        // (*): head_bits;  (-): mid_units;  (.): tail_bits
+        // The start bit can be identified with a pair (cur_unit_index, cur_unit_offset)
+        while cur_unit_index < complete_unit_num {
+            // First, adjust the cur_idx to a proper head.
+            (cur_unit_index, cur_unit_offset) = 
+                self.adjust_head_pos(bytes, cur_unit_index, cur_unit_offset, total_cluster_num);
+            let head_cluster_num = unit_size - cur_unit_offset;
+            let mid_unit_num = (num_clusters - head_cluster_num) / unit_size;
+            let tail_cluster_num = (num_clusters - head_cluster_num) % unit_size;
+            // If the last complete unit to be check is out of range, stop searching
+            if cur_unit_index + mid_unit_num >= complete_unit_num {
                 break;
             }
-            if found {
-                Ok(result_bit_index + EXFAT_RESERVED_CLUSTERS
-                    ..result_bit_index + EXFAT_RESERVED_CLUSTERS + num_clusters)
-            } else {
-                return_errno!(Errno::ENOSPC)
+            // Then check for the mid units, these units should be all zero
+            // Due to previous check, there will be no array out of bounds situation
+            let ret = self.check_mid_units(bytes, cur_unit_index, mid_unit_num);
+            if ret != cur_unit_index {
+                // Mid_checks failed, should go back to the first step.
+                cur_unit_index = ret;
+                cur_unit_offset = 0;
+                continue;
             }
-        } else {
-            // cluster_num <= unit_size, back to the simple function
-            self.find_next_unused_cluster_range_by_bits(search_start_cluster, num_clusters)
+            // At last, check for the tail bits
+            if tail_cluster_num == 0 {
+                return Ok(self.make_range(cur_unit_index, cur_unit_offset, num_clusters));
+            }
+            let mut tail_byte: u8 = 0;
+            let tail_idx = cur_unit_index + mid_unit_num + 1;
+            if tail_idx == complete_unit_num {
+                tail_byte |= 0xFF_u8 - ((1_u8 << rest_cluster_num) - 1);
+            }
+            if tail_idx < valid_bytes_num {
+                tail_byte |= bytes[tail_idx as usize];
+            }
+            let tailing_zeros = tail_byte.trailing_zeros();
+            if tail_cluster_num > tailing_zeros {
+                cur_unit_index = tail_idx;
+                cur_unit_offset = tailing_zeros + 1;
+                continue;
+            }
+            // If we reach here, it means we have found a result
+            return Ok(self.make_range(cur_unit_index, cur_unit_offset, num_clusters));
         }
+        return_errno!(Errno::ENOSPC)
     }
 
     pub(super) fn num_free_clusters(&self) -> u32 {

@@ -56,7 +56,7 @@ impl ExfatFS {
         block_device: Arc<dyn BlockDevice>,
         mount_option: ExfatMountOptions,
     ) -> Result<Arc<Self>> {
-        //Load the super_block
+        // Load the super_block
         let super_block = Self::read_super_block(block_device.as_ref())?;
         let fs_size = super_block.num_clusters as usize * super_block.cluster_size as usize;
         let exfat_fs = Arc::new_cyclic(|weak_self| ExfatFS {
@@ -76,7 +76,7 @@ impl ExfatFS {
 
         // TODO: if the main superblock is corrupted, should we load the backup?
 
-        //Verify boot region
+        // Verify boot region
         Self::verify_boot_region(exfat_fs.block_device())?;
 
         let weak_fs = Arc::downgrade(&exfat_fs);
@@ -105,9 +105,9 @@ impl ExfatFS {
         *exfat_fs.bitmap.lock() = bitmap;
         *exfat_fs.upcase_table.lock() = upcase_table;
 
-        //TODO: Handle UTF-8
+        // TODO: Handle UTF-8
 
-        //TODO: Init NLS Table
+        // TODO: Init NLS Table
 
         exfat_fs.inodes.write().insert(root.hash_index(), root);
 
@@ -196,7 +196,7 @@ impl ExfatFS {
         let sector_size = sb.sector_size;
         let raw_value: u32 = value.into();
 
-        //We expect the fat table to change less frequently, so we write its content to disk immediately instead of absorbing it.
+        // We expect the fat table to change less frequently, so we write its content to disk immediately instead of absorbing it.
         let position =
             sb.fat1_start_sector * sector_size as u64 + (cluster as u64) * FAT_ENTRY_SIZE as u64;
 
@@ -222,13 +222,13 @@ impl ExfatFS {
     }
 
     fn verify_boot_region(block_device: &dyn BlockDevice) -> Result<()> {
-        //TODO: Check boot signature and boot checksum.
+        // TODO: Check boot signature and boot checksum.
         Ok(())
     }
 
     fn read_super_block(block_device: &dyn BlockDevice) -> Result<ExfatSuperBlock> {
         let boot_sector = block_device.read_val::<ExfatBootSector>(0)?;
-        /* check the validity of BOOT */
+        /* Check the validity of BOOT */
         if boot_sector.signature != BOOT_SIGNATURE {
             return_errno_with_message!(Errno::EINVAL, "invalid boot record signature");
         }
@@ -265,7 +265,7 @@ impl ExfatFS {
 
         let super_block = ExfatSuperBlock::try_from(boot_sector)?;
 
-        /* check consistencies */
+        /* Check consistencies */
         if ((super_block.num_fat_sectors as u64) << boot_sector.sector_size_bits)
             < (super_block.num_clusters as u64) * 4
         {
@@ -293,7 +293,7 @@ impl ExfatFS {
     }
 
     fn calibrate_blocksize(super_block: &ExfatSuperBlock, logical_sec: u32) -> Result<()> {
-        //TODO: logical_sect should be larger than block_size.
+        // TODO: logical_sect should be larger than block_size.
         Ok(())
     }
 
@@ -370,7 +370,7 @@ impl PageCacheBackend for ExfatFS {
         Ok(())
     }
 
-    //What if block_size is not equal to page size?
+    // What if block_size is not equal to page size?
     fn write_page(&self, idx: usize, frame: &VmFrame) -> Result<()> {
         if self.fs_size() < idx * PAGE_SIZE {
             return_errno_with_message!(Errno::EINVAL, "invalid write size")

@@ -6,7 +6,7 @@ use core::{cmp::Ordering, time::Duration};
 pub(super) use align_ext::AlignExt;
 use aster_block::{
     id::{Bid, BlockId},
-    BLOCK_SIZE, SECTOR_SIZE,
+    BLOCK_SIZE,
 };
 use aster_frame::vm::{VmAllocOptions, VmFrame, VmIo};
 use aster_rights::Full;
@@ -216,7 +216,7 @@ impl ExfatInodeInner {
         self.fs.upgrade().unwrap()
     }
 
-    /// Only valid for directory, check if the dir is empty
+    /// Only valid for directory, check if the dir is empty.
     fn is_empty_dir(&self) -> Result<bool> {
         if !self.inode_type.is_directory() {
             return_errno!(Errno::ENOTDIR)
@@ -227,21 +227,6 @@ impl ExfatInodeInner {
     fn make_mode(&self) -> InodeMode {
         self.attr
             .make_mode(self.fs().mount_option(), InodeMode::all())
-    }
-
-    /// Copy metadata from the given inode.
-    fn copy_metadata_from(&mut self, inode: Arc<ExfatInode>) {
-        let inner = inode.inner.read();
-
-        self.dentry_set_position = inner.dentry_set_position.clone();
-        self.dentry_set_size = inner.dentry_set_size;
-        self.dentry_entry = inner.dentry_entry;
-        self.atime = inner.atime;
-        self.ctime = inner.ctime;
-        self.mtime = inner.mtime;
-        self.name = inner.name.clone();
-        self.is_deleted = inner.is_deleted;
-        self.parent_hash = inner.parent_hash;
     }
 
     fn count_num_sub_inode_and_dir(&self, fs_guard: &MutexGuard<()>) -> Result<(usize, usize)> {
@@ -477,15 +462,15 @@ impl ExfatInodeInner {
         }
     }
 
-    /// Look up a target with "name", cur inode represent a dir
-    /// Return (target inode, dentries start offset, dentry set size)
+    /// Look up a target with "name", cur inode represent a dir.
+    /// Return (target inode, dentries start offset, dentry set size).
     /// No inode should hold the write lock.
     fn lookup_by_name(
         &self,
         target_name: &str,
         case_sensitive: bool,
         fs_guard: &MutexGuard<()>,
-    ) -> Result<(Arc<ExfatInode>, usize, usize)> {
+    ) -> Result<Arc<ExfatInode>> {
         let fs = self.fs();
 
         let target_upcase = if !case_sensitive {
@@ -527,7 +512,7 @@ impl ExfatInodeInner {
                 let hash = make_hash_index(chain_off.0.cluster_id(), chain_off.1 as u32);
                 let inode = fs.find_opened_inode(hash).unwrap();
 
-                return Ok((inode.clone(), offset, inode.inner.read().dentry_set_size));
+                return Ok(inode.clone());
             }
         }
         return_errno!(Errno::ENOENT)
@@ -587,6 +572,27 @@ impl ExfatInodeInner {
     fn sync(&self, fs_guard: &MutexGuard<()>) -> Result<()> {
         self.page_cache.evict_range(0..self.size)?;
         self.sync_metadata(fs_guard)?;
+        Ok(())
+    }
+
+    /// Update the metadata for current directory after a delete.
+    /// Set is_dir if the deleted file is a directory.
+    fn update_metadata_for_delete(&mut self, is_dir: bool){
+        self.num_sub_inodes -= 1;
+        if is_dir {
+            self.num_sub_dirs -= 1;
+        }
+    }
+
+    fn update_atime(&mut self) -> Result<()> {
+        self.atime = DosTimestamp::now()?;
+        Ok(())
+    }
+
+    fn update_atime_and_mtime(&mut self) -> Result<()> {
+        let now = DosTimestamp::now()?;
+        self.atime = now;
+        self.mtime = now;
         Ok(())
     }
 }
@@ -776,7 +782,7 @@ impl ExfatInode {
         Ok(inode)
     }
 
-    //The caller of the function should give a unique ino to assign to the inode.
+    /// The caller of the function should give a unique ino to assign to the inode.
     pub(super) fn read_from_iterator(
         fs: Arc<ExfatFS>,
         dentry_entry: usize,
@@ -823,7 +829,7 @@ impl ExfatInode {
             entry_id += 1;
         }
 
-        // Empty entries not found, allocate new cluster
+        // Empty entries not found, allocate new cluster.
 
         if inner.size >= EXFAT_MAX_DENTRIES as usize * DENTRY_SIZE {
             return_errno!(Errno::ENOSPC)
@@ -849,7 +855,7 @@ impl ExfatInode {
         }
         let inner = self.inner.read();
 
-        //We need to write unused dentries (i.e. 0) to page cache
+        // We need to write unused dentries (i.e. 0) to page cache.
         inner
             .page_cache
             .pages()
@@ -877,7 +883,7 @@ impl ExfatInode {
         let name_dentries = (name.len() + EXFAT_FILE_NAME_LEN - 1) / EXFAT_FILE_NAME_LEN;
         let num_dentries = name_dentries + 2; // FILE Entry + Stream Entry + Name Entry
 
-        //We update the size of inode before writing page_cache, but it is fine since we've cleaned the page_cache.
+        // We update the size of inode before writing page_cache, but it is fine since we've cleaned the page_cache.
         let entry = self.find_empty_dentries(num_dentries, fs_guard)? as u32;
 
         let dentry_set = ExfatDentrySet::from(fs.clone(), name, inode_type, mode)?;
@@ -937,14 +943,14 @@ impl ExfatInode {
         let cluster_size = fs.cluster_size();
         for i in 0..num_dentry {
             let buf_offset = DENTRY_SIZE * i;
-            // Delete cluster chain if needed
+            // Delete cluster chain if needed.
             let dentry = ExfatDentry::try_from(RawExfatDentry::from_bytes(
                 &buf[buf_offset..buf_offset + DENTRY_SIZE],
             ))?;
             self.inner
                 .write()
                 .delete_associated_secondary_clusters(&dentry, fs_guard)?;
-            // Mark this dentry as deleted
+            // Mark this dentry as deleted.
             buf[buf_offset] &= 0x7F;
         }
 
@@ -957,6 +963,86 @@ impl ExfatInode {
         // FIXME: We must make sure that there are no spare tailing clusters in a directory.
         Ok(())
     }
+
+    /// Copy metadata from the given inode.
+    /// There will be no deadlock since this function is only used in rename and the arg "inode".
+    /// is a temporary inode which is only accessible to current thread.
+    fn copy_metadata_from(&self, inode: Arc<ExfatInode>) {
+        let mut self_inner = self.inner.write();
+        let other_inner = inode.inner.read();
+
+        self_inner.dentry_set_position = other_inner.dentry_set_position.clone();
+        self_inner.dentry_set_size = other_inner.dentry_set_size;
+        self_inner.dentry_entry = other_inner.dentry_entry;
+        self_inner.atime = other_inner.atime;
+        self_inner.ctime = other_inner.ctime;
+        self_inner.mtime = other_inner.mtime;
+        self_inner.name = other_inner.name.clone();
+        self_inner.is_deleted = other_inner.is_deleted;
+        self_inner.parent_hash = other_inner.parent_hash;
+    }
+
+    fn update_subdir_parent_hash(&self, fs_guard: &MutexGuard<()>) -> Result<()> {
+        let inner = self.inner.read();
+        if !inner.inode_type.is_directory() {
+            return Ok(());
+        }
+        let new_parent_hash = self.hash_index();
+        let sub_dir = inner.num_sub_inodes;
+        let mut child_offsets: Vec<usize> = vec![];
+        impl DirentVisitor for Vec<usize> {
+            fn visit(
+                &mut self,
+                name: &str,
+                ino: u64,
+                type_: InodeType,
+                offset: usize,
+            ) -> Result<()> {
+                self.push(offset);
+                Ok(())
+            }
+        }
+        inner.visit_sub_inodes(
+            0,
+            sub_dir as usize,
+            &mut child_offsets,
+            &fs_guard,
+        )?;
+
+        let start_chain = inner.start_chain.clone();
+        for offset in child_offsets {
+            let child_dentry_pos = start_chain.walk_to_cluster_at_offset(offset)?;
+            let child_hash =
+                make_hash_index(child_dentry_pos.0.cluster_id(), child_dentry_pos.1 as u32);
+            let child_inode = inner.fs().find_opened_inode(child_hash).unwrap();
+            child_inode.inner.write().parent_hash = new_parent_hash;
+        }
+        Ok(())
+    }
+
+    /// Unlink a file or remove a directory.
+    /// Need to delete dentry set and inode.
+    /// Delete the file contents if delete_content is set.
+    fn delete_inode(&self, inode: Arc<ExfatInode>, delete_contents: bool, fs_guard: &MutexGuard<()>) -> Result<()> {
+        // Delete directory contents directly.
+        let is_dir = inode.inner.read().inode_type.is_directory();
+        if delete_contents {
+            if is_dir {
+                inode.inner.write().resize(0, &fs_guard)?;
+                inode.inner.read().page_cache.pages().resize(0)?;
+            }
+            // Set the delete flag.
+            inode.inner.write().is_deleted = true;
+        }
+        // Remove the inode.
+        self.inner.read().fs().remove_inode(inode.hash_index());
+        // Remove dentry set.
+        let dentry_set_offset = inode.inner.read().dentry_entry as usize * DENTRY_SIZE;
+        let dentry_set_len = inode.inner.read().dentry_set_size;
+        self.delete_dentry_set(dentry_set_offset, dentry_set_len, &fs_guard)?;
+        self.inner.write().update_metadata_for_delete(is_dir);
+        Ok(())
+    }
 }
 
 struct EmptyVistor;
@@ -967,6 +1053,21 @@ impl DirentVisitor for EmptyVistor {
 }
 fn is_block_aligned(off: usize) -> bool {
     off % PAGE_SIZE == 0
+}
+
+fn check_corner_cases_for_rename(old_inode: &Arc<ExfatInode>, exist_inode: &Arc<ExfatInode>) 
+    -> Result<()> {
+    // Check for two corner cases here.
+    let old_inode_is_dir = old_inode.inner.read().inode_type.is_directory();
+    // If old_inode represents a directory, the exist 'new_name' must represents a empty directory.
+    if old_inode_is_dir && !exist_inode.inner.read().is_empty_dir()? {
+        return_errno!(Errno::ENOTEMPTY)
+    }
+    // If old_inode represents a file, the exist 'new_name' must also represents a file.
+    if !old_inode_is_dir && exist_inode.inner.read().inode_type.is_directory() {
+        return_errno!(Errno::EISDIR)
+    }
+    Ok(())
 }
 
 impl Inode for ExfatInode {
@@ -1073,7 +1174,7 @@ impl Inode for ExfatInode {
     }
 
     fn set_owner(&self, uid: Uid) -> Result<()> {
-        //Pass through
+        // Pass through.
         Ok(())
     }
 
@@ -1084,7 +1185,7 @@ impl Inode for ExfatInode {
     }
 
     fn set_group(&self, gid: Gid) -> Result<()> {
-        //Pass through
+        // Pass through.
         Ok(())
     }
 
@@ -1112,7 +1213,7 @@ impl Inode for ExfatInode {
             .pages()
             .read_bytes(read_off, &mut buf[..read_len])?;
 
-        inner.upgrade().atime = DosTimestamp::now()?;
+        inner.upgrade().update_atime()?;
         Ok(read_len)
     }
 
@@ -1143,9 +1244,13 @@ impl Inode for ExfatInode {
         let mut buf_offset = 0;
         let frame = VmAllocOptions::new(1).uninit(true).alloc_single().unwrap();
 
-        for bid in Bid::from_offset(read_off)..Bid::from_offset(read_off + read_len) {
+        let start_pos = inner.start_chain.walk_to_cluster_at_offset(read_off)?;
+        let cluster_size = inner.fs().cluster_size();
+        let mut cur_cluster = start_pos.0.clone();
+        let mut cur_offset = start_pos.1;
+        for _ in Bid::from_offset(read_off)..Bid::from_offset(read_off + read_len) {
             let physical_bid =
-                Bid::from_offset(inner.get_sector_id(bid.to_offset() / SECTOR_SIZE)? * SECTOR_SIZE);
+                Bid::from_offset(cur_cluster.cluster_id() as usize * cluster_size + cur_offset);
             inner
                 .fs()
                 .block_device()
@@ -1153,14 +1258,20 @@ impl Inode for ExfatInode {
 
             frame.read_bytes(0, &mut buf[buf_offset..buf_offset + BLOCK_SIZE])?;
             buf_offset += BLOCK_SIZE;
+
+            cur_offset += BLOCK_SIZE;
+            if cur_offset >= cluster_size {
+                cur_cluster = cur_cluster.walk(1)?;
+                cur_offset %= BLOCK_SIZE;
+            }
         }
 
-        inner.upgrade().atime = DosTimestamp::now()?;
+        inner.upgrade().update_atime()?;
         Ok(read_len)
     }
 
     fn write_at(&self, offset: usize, buf: &[u8]) -> Result<usize> {
-        //We need to obtain the fs lock to resize the file.
+        // We need to obtain the fs lock to resize the file.
         let new_size = {
             let mut inner = self.inner.write();
             if inner.inode_type.is_directory() {
@@ -1181,7 +1292,7 @@ impl Inode for ExfatInode {
             new_size.max(file_size)
         };
 
-        //locks released here, so that file write can be parallized.
+        // Locks released here, so that file write can be parallized.
         let inner = self.inner.upread();
         inner.page_cache.pages().write_bytes(offset, buf)?;
 
@@ -1189,9 +1300,7 @@ impl Inode for ExfatInode {
         {
             let mut inner = inner.upgrade();
 
-            let now = DosTimestamp::now()?;
-            inner.atime = now;
-            inner.mtime = now;
+            inner.update_atime_and_mtime()?;
             inner.size = new_size;
         }
 
@@ -1240,29 +1349,37 @@ impl Inode for ExfatInode {
         let inner = self.inner.upread();
         let mut buf_offset = 0;
 
-        for bid in Bid::from_offset(offset)..Bid::from_offset(end_offset) {
+        let start_pos = inner.start_chain.walk_to_cluster_at_offset(offset)?;
+        let cluster_size = inner.fs().cluster_size();
+        let mut cur_cluster = start_pos.0.clone();
+        let mut cur_offset = start_pos.1;
+        for _ in Bid::from_offset(offset)..Bid::from_offset(end_offset) {
             let frame = {
                 let frame = VmAllocOptions::new(1).uninit(true).alloc_single().unwrap();
                 frame.write_bytes(0, &buf[buf_offset..buf_offset + BLOCK_SIZE])?;
                 frame
             };
             let physical_bid =
-                Bid::from_offset(inner.get_sector_id(bid.to_offset() / SECTOR_SIZE)? * SECTOR_SIZE);
+                Bid::from_offset(cur_cluster.cluster_id() as usize * cluster_size + cur_offset);
             let fs = inner.fs();
             fs.block_device().write_block_sync(physical_bid, &frame)?;
             buf_offset += BLOCK_SIZE;
+
+            cur_offset += BLOCK_SIZE;
+            if cur_offset >= cluster_size {
+                cur_cluster = cur_cluster.walk(1)?;
+                cur_offset %= BLOCK_SIZE;
+            }
         }
 
         {
-            let now = DosTimestamp::now()?;
             let mut inner = inner.upgrade();
-            inner.atime = now;
-            inner.mtime = now;
+            inner.update_atime_and_mtime()?;
             inner.size = new_size;
         }
 
         let inner = self.inner.read();
-        //Sync this inode since size has changed.
+        // Sync this inode since size has changed.
         if inner.is_sync() {
             let fs = inner.fs();
             let fs_guard = fs.lock();
@@ -1292,12 +1409,7 @@ impl Inode for ExfatInode {
         let result = self.add_entry(name, type_, mode, &fs_guard)?;
         let _ = fs.insert_inode(result.clone());
 
-        {
-            let mut inner = self.inner.write();
-            let now = DosTimestamp::now()?;
-            inner.atime = now;
-            inner.mtime = now;
-        }
+        self.inner.write().update_atime_and_mtime()?;
 
         let inner = self.inner.read();
 
@@ -1348,10 +1460,10 @@ impl Inode for ExfatInode {
                 }
             }
 
-            //Skip . and ..
+            // Skip . and ..
             let dir_to_skip = if dir_cnt >= 2 { dir_cnt - 2 } else { 0 };
 
-            //Skip previous directories.
+            // Skip previous directories.
             let (off, _) = inner.visit_sub_inodes(0, dir_to_skip, &mut empty_visitor, &fs_guard)?;
             let (_, read) = inner.visit_sub_inodes(
                 off,
@@ -1363,7 +1475,7 @@ impl Inode for ExfatInode {
             dir_read
         };
 
-        inner.upgrade().atime = DosTimestamp::now()?;
+        inner.upgrade().update_atime()?;
 
         Ok(dir_read)
     }
@@ -1386,37 +1498,14 @@ impl Inode for ExfatInode {
         let fs = self.inner.read().fs();
         let fs_guard = fs.lock();
 
-        let (inode, offset, len) = self.inner.read().lookup_by_name(name, true, &fs_guard)?;
+        let inode = self.inner.read().lookup_by_name(name, true, &fs_guard)?;
 
-        //FIXME: we need to step by following line to avoid deadlock.
+        // FIXME: we need to step by following line to avoid deadlock.
         if inode.type_() != InodeType::File {
             return_errno!(Errno::EISDIR)
         }
-
-        let dentry_position = self
-            .inner
-            .read()
-            .start_chain
-            .walk_to_cluster_at_offset(offset)?;
-
-        self.inner.read().fs().remove_inode(make_hash_index(
-            dentry_position.0.cluster_id(),
-            dentry_position.1 as u32,
-        ));
-
-        self.delete_dentry_set(offset, len, &fs_guard)?;
-
-        {
-            let mut inner = self.inner.write();
-
-            inner.is_deleted = true;
-
-            inner.num_sub_inodes -= 1;
-
-            let now = DosTimestamp::now()?;
-            inner.atime = now;
-            inner.mtime = now;
-        }
+        self.delete_inode(inode, true, &fs_guard)?;
+        self.inner.write().update_atime_and_mtime()?;
 
         let inner = self.inner.read();
         if inner.is_sync() {
@@ -1443,45 +1532,19 @@ impl Inode for ExfatInode {
         let fs = self.inner.read().fs();
         let fs_guard = fs.lock();
 
-        let (inode, offset, len) = self.inner.read().lookup_by_name(name, true, &fs_guard)?;
+        let inode = self.inner.read().lookup_by_name(name, true, &fs_guard)?;
 
         if inode.inner.read().inode_type != InodeType::Dir {
             return_errno!(Errno::ENOTDIR)
         } else if !inode.inner.read().is_empty_dir()? {
-            // check if directory to be deleted is empty
+            // Check if directory to be deleted is empty.
             return_errno!(Errno::ENOTEMPTY)
         }
-
-        inode.inner.write().resize(0, &fs_guard)?;
-        inode.inner.read().page_cache.pages().resize(0)?;
-        inode.inner.write().is_deleted = true;
-
-        let dentry_position = self
-            .inner
-            .read()
-            .start_chain
-            .walk_to_cluster_at_offset(offset)?;
-
-        self.inner.read().fs().remove_inode(make_hash_index(
-            dentry_position.0.cluster_id(),
-            dentry_position.1 as u32,
-        ));
-
-        self.delete_dentry_set(offset, len, &fs_guard)?;
-
-        {
-            let mut inner = self.inner.write();
-            inner.num_sub_inodes -= 1;
-            inner.num_sub_dirs -= 1;
-
-            let now = DosTimestamp::now()?;
-            inner.atime = now;
-            inner.mtime = now;
-        }
+        self.delete_inode(inode, true, &fs_guard)?;
+        self.inner.write().update_atime_and_mtime()?;
 
         let inner = self.inner.read();
-
-        //Sync this inode since size has changed.
+        // Sync this inode since size has changed.
         if inner.is_sync() {
             inner.sync(&fs_guard)?;
         }
@@ -1490,7 +1553,7 @@ impl Inode for ExfatInode {
     }
 
     fn lookup(&self, name: &str) -> Result<Arc<dyn Inode>> {
-        //FIXME: Readdir should be immutable instead of mutable, but there will be no performance issues due to the global fs lock.
+        // FIXME: Readdir should be immutable instead of mutable, but there will be no performance issues due to the global fs lock.
         let inner = self.inner.upread();
         if !inner.inode_type.is_directory() {
             return_errno!(Errno::ENOTDIR)
@@ -1503,12 +1566,10 @@ impl Inode for ExfatInode {
         let inode = {
             let fs = inner.fs();
             let fs_guard = fs.lock();
-
-            let (inode, _, _) = inner.lookup_by_name(name, true, &fs_guard)?;
-            inode
+            inner.lookup_by_name(name, true, &fs_guard)?
         };
 
-        inner.upgrade().atime = DosTimestamp::now()?;
+        inner.upgrade().update_atime()?;
 
         Ok(inode)
     }
@@ -1520,11 +1581,9 @@ impl Inode for ExfatInode {
         if old_name.len() > MAX_NAME_LENGTH || new_name.len() > MAX_NAME_LENGTH {
             return_errno!(Errno::ENAMETOOLONG)
         }
-
         let Some(target_) = target.downcast_ref::<ExfatInode>() else {
             return_errno_with_message!(Errno::EINVAL, "not an exfat inode")
         };
-
         if !self.inner.read().inode_type.is_directory()
             || !target_.inner.read().inode_type.is_directory()
         {
@@ -1533,121 +1592,47 @@ impl Inode for ExfatInode {
 
         let fs = self.inner.read().fs();
         let fs_guard = fs.lock();
-
-        // rename something to itself, return success directly
+        // Rename something to itself, return success directly.
         let up_old_name = fs.upcase_table().lock().str_to_upcase(old_name)?;
         let up_new_name = fs.upcase_table().lock().str_to_upcase(new_name)?;
-
         if self.inner.read().ino == target_.inner.read().ino && up_old_name.eq(&up_new_name) {
             return Ok(());
         }
 
-        // read 'old_name' file or dir and its dentries.
-        let (old_inode, old_offset, old_len) = self
-            .inner
-            .read()
-            .lookup_by_name(old_name, true, &fs_guard)?;
-
-        let old_inode_is_directory = old_inode.inner.read().inode_type.is_directory();
-
-        //FIXME: Users may be confused, since inode with the same upper case name will be removed.
-        let lookup_exist_result = target_
-            .inner
-            .read()
-            .lookup_by_name(new_name, false, &fs_guard);
-        if let Ok((ref exist_inode, exist_offset, exist_len)) = lookup_exist_result {
-            // check for two corner cases here
-            // if 'old_name' represents a directory, the exist 'new_name' must represents a empty directory.
-            if old_inode_is_directory && !exist_inode.inner.read().is_empty_dir()? {
-                return_errno!(Errno::ENOTEMPTY)
-            }
-            // if 'old_name' represents a file, the exist 'new_name' must also represents a file.
-            if !old_inode_is_directory && exist_inode.inner.read().inode_type.is_directory() {
-                return_errno!(Errno::EISDIR)
-            }
+        // Read 'old_name' file or dir and its dentries.
+        let old_inode = self.inner.read().lookup_by_name(old_name, true, &fs_guard)?;
+        // FIXME: Users may be confused, since inode with the same upper case name will be removed.
+        let lookup_exist_result = target_.inner.read().lookup_by_name(new_name, false, &fs_guard);
+        // Check for the corner cases.
+        if let Ok(ref exist_inode) = lookup_exist_result {
+            check_corner_cases_for_rename(&old_inode, exist_inode)?;
         }
 
-        // copy the dentries
+        // All checks are done here. This is a valid rename and it needs to modify the metadata.
+        self.delete_inode(old_inode.clone(), false, &fs_guard)?;
+        // Create the new dentries.
         let new_inode =
             target_.add_entry(new_name, old_inode.type_(), old_inode.mode()?, &fs_guard)?;
-
-        // evict old_inode
-        fs.remove_inode(old_inode.inner.read().hash_index());
-        // update metadata
-        old_inode.inner.write().copy_metadata_from(new_inode);
-
-        // update its children's parent_hash for a directory
-        if old_inode_is_directory {
-            let new_parent_hash = old_inode.hash_index();
-            let sub_dir = old_inode.inner.read().num_sub_inodes;
-            let mut child_offsets: Vec<usize> = vec![];
-            impl DirentVisitor for Vec<usize> {
-                fn visit(
-                    &mut self,
-                    name: &str,
-                    ino: u64,
-                    type_: InodeType,
-                    offset: usize,
-                ) -> Result<()> {
-                    self.push(offset);
-                    Ok(())
-                }
-            }
-            old_inode.inner.read().visit_sub_inodes(
-                0,
-                sub_dir as usize,
-                &mut child_offsets,
-                &fs_guard,
-            )?;
-
-            let start_chain = old_inode.inner.read().start_chain.clone();
-            for offset in child_offsets {
-                let child_dentry_pos = start_chain.walk_to_cluster_at_offset(offset)?;
-                let child_hash =
-                    make_hash_index(child_dentry_pos.0.cluster_id(), child_dentry_pos.1 as u32);
-                let child_inode = fs.find_opened_inode(child_hash).unwrap();
-                child_inode.inner.write().parent_hash = new_parent_hash;
-            }
-        }
-
-        // insert back
+        // Update metadata.
+        old_inode.copy_metadata_from(new_inode);
+        // Update its children's parent_hash.
+        old_inode.update_subdir_parent_hash(&fs_guard)?;
+        // Insert back.
         let _ = fs.insert_inode(old_inode.clone());
-
-        // delete 'old_name' dentries
-        self.delete_dentry_set(old_offset, old_len, &fs_guard)?;
-        self.inner.write().num_sub_inodes -= 1;
-        if old_inode_is_directory {
-            self.inner.write().num_sub_dirs -= 1;
+        // Remove the exist 'new_name' file.
+        if let Ok(exist_inode) = lookup_exist_result {
+            target_.delete_inode(exist_inode, true, &fs_guard)?;
         }
-
-        // remove the exist 'new_name' file(include file contents, inode and dentries)
-        if let Ok((exist_inode, exist_offset, exist_len)) = lookup_exist_result {
-            fs.remove_inode(exist_inode.hash_index());
-
-            exist_inode.inner.write().resize(0, &fs_guard)?;
-            exist_inode.inner.read().page_cache.pages().resize(0)?;
-
-            target_.delete_dentry_set(exist_offset, exist_len, &fs_guard)?;
-            target_.inner.write().num_sub_inodes -= 1;
-            if exist_inode.inner.read().inode_type.is_directory() {
-                target_.inner.write().num_sub_dirs -= 1;
-            }
-        }
-
-        let now = DosTimestamp::now()?;
-        self.inner.write().atime = now;
-        self.inner.write().mtime = now;
-
-        target_.inner.write().atime = now;
-        target_.inner.write().mtime = now;
-
+        // Update the times.
+        self.inner.write().update_atime_and_mtime()?;
+        target_.inner.write().update_atime_and_mtime()?;
+        // Sync
         if self.inner.read().is_sync() || target_.inner.read().is_sync() {
-            //TODO: what if fs crashed between syncing?
+            // TODO: what if fs crashed between syncing?
             old_inode.inner.read().sync(&fs_guard)?;
             target_.inner.read().sync(&fs_guard)?;
             self.inner.read().sync(&fs_guard)?;
         }
-
         Ok(())
     }
 
