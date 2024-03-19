@@ -1006,7 +1006,7 @@ impl ExfatInode {
             0,
             sub_dir as usize,
             &mut child_offsets,
-            &fs_guard,
+            fs_guard,
         )?;
 
         let start_chain = inner.start_chain.clone();
@@ -1028,7 +1028,7 @@ impl ExfatInode {
         let is_dir = inode.inner.read().inode_type.is_directory();
         if delete_contents {
             if is_dir {
-                inode.inner.write().resize(0, &fs_guard)?;
+                inode.inner.write().resize(0, fs_guard)?;
                 inode.inner.read().page_cache.pages().resize(0)?;
             }
             // Set the delete flag.
@@ -1039,7 +1039,7 @@ impl ExfatInode {
         // Remove dentry set.
         let dentry_set_offset = inode.inner.read().dentry_entry as usize * DENTRY_SIZE;
         let dentry_set_len = inode.inner.read().dentry_set_size;
-        self.delete_dentry_set(dentry_set_offset, dentry_set_len, &fs_guard)?;
+        self.delete_dentry_set(dentry_set_offset, dentry_set_len, fs_guard)?;
         self.inner.write().update_metadata_for_delete(is_dir);
         Ok(())
     }
